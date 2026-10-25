@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>多平台工具</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;
+  background:#f4f6fa;color:#1f2937;line-height:1.6;padding:32px 20px 48px;min-height:100vh}
+.wrap{max-width:1060px;margin:0 auto}
+header{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;
+  flex-wrap:wrap;margin-bottom:8px}
+h1{font-size:23px;font-weight:650;letter-spacing:-.3px;display:flex;align-items:center;gap:10px}
+h1 .dot{width:9px;height:9px;border-radius:50%;background:#22c55e;
+  box-shadow:0 0 0 4px rgba(34,197,94,.15)}
+.sub{font-size:13px;color:#8b95a5;margin-top:4px}
+.meta{font-size:12px;color:#94a3b8;font-family:ui-monospace,Consolas,monospace}
+.meta a{color:#2563eb;text-decoration:none;font-weight:600}
+section{margin-top:26px}
+h2{font-size:13px;font-weight:650;color:#64748b;letter-spacing:.4px;margin-bottom:12px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+@media(max-width:900px){.grid{grid-template-columns:1fr}}
+.card{background:#fff;border-radius:14px;padding:18px;border:1px solid #eef1f6;
+  box-shadow:0 1px 3px rgba(16,24,40,.04);display:flex;flex-direction:column;gap:10px;
+  transition:.18s;text-decoration:none;color:inherit}
+.card.on:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(16,24,40,.09);
+  border-color:#bfd3f9}
+.card.off{opacity:.62;cursor:default}
+.card-head{display:flex;align-items:center;gap:10px}
+.ico{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;
+  font-size:17px;flex:none;background:#f1f5f9}
+.nm{font-size:15px;font-weight:650}
+.desc{font-size:12.5px;color:#8b95a5;flex:1}
+.foot{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.badge{font-size:11px;font-weight:600;padding:2px 9px;border-radius:20px;
+  background:#f1f5f9;color:#94a3b8}
+.badge.ok{background:#e8f9ef;color:#16a34a}
+.badge.wip{background:#fff7ed;color:#c2410c}
+.go{font-size:12.5px;font-weight:650;color:#2563eb}
+.card.off .go{color:#cbd5e1}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1><span class="dot"></span>多平台工具</h1>
+      <div class="sub">聊天记录导出 · 每日签到与续火花　全部在本机运行</div>
+    </div>
+    <div class="meta">127.0.0.1:18000 · <a href="/douyin-chat/panel">抖音账号管理</a></div>
+  </header>
+
+  <section>
+    <h2>聊天记录导出</h2>
+    <div class="grid">
+      <a class="card on" href="/douyin">
+        <div class="card-head"><div class="ico">🎵</div><div class="nm">抖音 · 聊天记录与火花</div></div>
+        <div class="desc">一个页面管理抖音账号：导出私信历史、自动续火花，共用同一份登录态</div>
+        <div class="foot"><span class="badge ok">可用</span><span class="go">打开 →</span></div>
+      </a>
+      <a class="card on" href="/weibo-chat/">
+        <div class="card-head"><div class="ico">💬</div><div class="nm">微博聊天记录</div></div>
+        <div class="desc">私信图片、语音、视频本地化，生成离线 HTML 浏览页</div>
+        <div class="foot"><span class="badge ok">可用</span><span class="go">打开 →</span></div>
+      </a>
+      <a class="card on" href="/taobao/">
+        <div class="card-head"><div class="ico">🛒</div><div class="nm">淘宝旺旺记录</div></div>
+        <div class="desc">登录淘宝后按聊天链接导出买家侧记录，生成离线 HTML 浏览页</div>
+        <div class="foot"><span class="badge ok">可用</span><span class="go">打开 →</span></div>
+      </a>
+    </div>
+  </section>
+
+  <section>
+    <h2>每日自动化</h2>
+    <div class="grid">
+      <a class="card on" href="/signin/">
+        <div class="card-head"><div class="ico">✅</div><div class="nm">一键签到</div></div>
+        <div class="desc">微博超话、吾爱破解、百度贴吧；支持扫码登录与自动重试</div>
+        <div class="foot"><span class="badge ok">可用</span><span class="go">打开 →</span></div>
+      </a>
+      <a class="card on" href="/starsky/">
+        <div class="card-head"><div class="ico">⭐</div><div class="nm">StarSky 签到</div></div>
+        <div class="desc">识别窗口按钮自动点击，签到后自动关闭客户端</div>
+        <div class="foot"><span class="badge ok">可用</span><span class="go">打开 →</span></div>
+      </a>
+    </div>
+  </section>
+</div>
+</body>
+</html>

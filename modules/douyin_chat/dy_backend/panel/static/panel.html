@@ -1,0 +1,2319 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<title>Control Panel - 抖音聊天记录</title>
+<style>
+/* ── Theme variables ── */
+[data-theme="dark"] {
+  --bg:       #0f1014;
+  --bg2:      #16181f;
+  --bg3:      #21242e;
+  --surface:  #16181f;
+  --accent:   #f2586e;
+  --accent2:  #ff7488;
+  --accent-bg:color-mix(in srgb, var(--accent) 13%, transparent);
+  --text:     #e9eaf0;
+  --text2:    #9a9daa;
+  --text3:    #656875;
+  --border:   #23262f;
+  --green:    #4dd08a;  --green-bg: color-mix(in srgb, var(--green) 14%, transparent);
+  --red:      #ff5c6c;  --red-bg:   color-mix(in srgb, var(--red) 14%, transparent);
+  --yellow:   #e2b23c;  --yellow-bg:color-mix(in srgb, var(--yellow) 14%, transparent);
+  --shadow:   0 1px 2px rgba(0,0,0,0.28);
+}
+[data-theme="light"] {
+  --bg:       #f7f7f9;  --bg2: #ffffff;  --bg3: #eef0f3;  --surface: #ffffff;
+  --accent:   #e5405c;  --accent2: #f2586e;
+  --accent-bg:color-mix(in srgb, var(--accent) 9%, transparent);
+  --text:     #1a1c22;  --text2: #5b606b;  --text3: #9096a1;
+  --border:   #e2e4e9;
+  --green:    #1f9d57;  --green-bg: color-mix(in srgb, var(--green) 10%, transparent);
+  --red:      #d93440;  --red-bg:   color-mix(in srgb, var(--red) 10%, transparent);
+  --yellow:   #b7791f;  --yellow-bg:color-mix(in srgb, var(--yellow) 10%, transparent);
+  --shadow:   0 1px 2px rgba(20,20,30,0.06);
+}
+[data-theme="ocean"] {
+  --bg:       #0b1622;  --bg2: #10202f;  --bg3: #18324a;  --surface: #10202f;
+  --accent:   #35c0d6;  --accent2: #66d6e8;
+  --accent-bg:color-mix(in srgb, var(--accent) 13%, transparent);
+  --text:     #dceaf3;  --text2: #8bacc0;  --text3: #5b7d93;
+  --border:   #1c344b;
+  --green:    #45c98a;  --green-bg: color-mix(in srgb, var(--green) 14%, transparent);
+  --red:      #f2586e;  --red-bg:   color-mix(in srgb, var(--red) 14%, transparent);
+  --yellow:   #e6b34a;  --yellow-bg:color-mix(in srgb, var(--yellow) 14%, transparent);
+  --shadow:   0 1px 2px rgba(0,0,0,0.35);
+}
+[data-theme="purple"] {
+  --bg:       #120f1c;  --bg2: #1a1626;  --bg3: #271f38;  --surface: #1a1626;
+  --accent:   #b57cff;  --accent2: #cda3ff;
+  --accent-bg:color-mix(in srgb, var(--accent) 14%, transparent);
+  --text:     #e7dcf7;  --text2: #a394c0;  --text3: #6f6190;
+  --border:   #2c2440;
+  --green:    #57d09a;  --green-bg: color-mix(in srgb, var(--green) 14%, transparent);
+  --red:      #ff6b81;  --red-bg:   color-mix(in srgb, var(--red) 14%, transparent);
+  --yellow:   #e6b34a;  --yellow-bg:color-mix(in srgb, var(--yellow) 14%, transparent);
+  --shadow:   0 1px 2px rgba(0,0,0,0.4);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+  background: var(--bg); color: var(--text); min-height: 100vh;
+  -webkit-font-smoothing: antialiased; transition: background 0.3s, color 0.3s;
+}
+
+/* ── App shell: sidebar + main ── */
+.panel-shell { display: flex; min-height: 100vh; }
+.sidebar {
+  width: 224px; flex-shrink: 0; background: var(--bg2);
+  border-right: 1px solid var(--border);
+  padding: 22px 14px; display: flex; flex-direction: column;
+  position: sticky; top: 0; height: 100vh;
+}
+.brand {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 15px; font-weight: 700; letter-spacing: -0.01em; color: var(--text);
+  padding: 0 8px 4px; line-height: 1.3;
+}
+.brand-dot {
+  width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; background: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-bg);
+}
+.nav { display: flex; flex-direction: column; gap: 2px; margin-top: 20px; }
+.nav-item {
+  display: flex; align-items: center; gap: 11px;
+  padding: 9px 12px; border-radius: 9px; cursor: pointer;
+  color: var(--text2); font-size: 14px; font-weight: 500;
+  border-left: 2px solid transparent; transition: background 0.15s, color 0.15s;
+  user-select: none;
+}
+.nav-item:hover { background: color-mix(in srgb, var(--text) 5%, transparent); color: var(--text); }
+.nav-item.active { background: var(--accent-bg); color: var(--accent); }
+.nav-item .ico {
+  width: 18px; text-align: center; font-size: 15px; flex-shrink: 0; opacity: 0.9;
+}
+.side-foot { margin-top: auto; display: flex; flex-direction: column; gap: 12px; padding-top: 16px; }
+
+/* ── Main content ── */
+.panel-main { flex: 1; min-width: 0; padding: 30px 34px; max-width: 940px; }
+.page-head { margin-bottom: 22px; }
+.page-head h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+.page-head p { font-size: 13px; color: var(--text3); margin-top: 4px; }
+.panel-page { display: none; animation: pageIn 0.2s ease; }
+.panel-page.active { display: block; }
+@keyframes pageIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* ── Stats cards ── */
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 6px; }
+.card {
+  background: var(--bg2); border-radius: var(--radius, 14px); padding: 22px 20px;
+  text-align: center; border: 1px solid var(--border); box-shadow: var(--shadow);
+  transition: transform 0.15s, border-color 0.15s;
+}
+.card:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+.card .num { font-size: 32px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+.card .label { font-size: 12px; color: var(--text2); margin-top: 6px; letter-spacing: 0.4px; }
+
+/* ── Sections (cards inside a page) ── */
+.section {
+  background: var(--bg2); border-radius: 14px; padding: 22px;
+  margin-bottom: 16px; border: 1px solid var(--border); box-shadow: var(--shadow);
+}
+.section h2 {
+  font-size: 13px; font-weight: 600; margin-bottom: 15px;
+  display: flex; align-items: center; gap: 10px;
+  letter-spacing: 0.2px; color: var(--text2);
+}
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.row + .row { margin-top: 10px; }
+
+/* ── Form controls ── */
+select, input[type=text], input[type=password] {
+  background: var(--bg3); border: 1px solid var(--border); color: var(--text);
+  padding: 8px 12px; border-radius: 9px; font-size: 13px; outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+select:focus, input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+
+.btn {
+  padding: 8px 18px; border: none; border-radius: 9px; font-size: 13px;
+  cursor: pointer; font-weight: 600; transition: filter 0.15s, background 0.15s, border-color 0.15s, color 0.15s;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { filter: brightness(1.08); }
+.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-danger { background: var(--red); color: #fff; }
+.btn-danger:hover { filter: brightness(1.08); }
+.btn-success { background: var(--green); color: #fff; text-decoration: none; }
+.btn-success:hover { filter: brightness(1.08); }
+.btn-outline { background: transparent; color: var(--text2); border: 1px solid var(--border); }
+.btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+.btn-sm { padding: 5px 11px; font-size: 12px; }
+
+/* ── File picker ── */
+.file-picker-input {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+.file-picker {
+  display: inline-flex; align-items: center; gap: 10px; min-width: 230px;
+  max-width: 100%; padding: 7px 12px; border: 1px dashed var(--border);
+  border-radius: 10px; background: var(--bg3); color: var(--text);
+  cursor: pointer; user-select: none; transition: border-color 0.15s, background 0.15s;
+}
+.file-picker:hover {
+  border-color: var(--accent); background: var(--accent-bg);
+}
+.file-picker-icon {
+  width: 30px; height: 30px; display: grid; place-items: center;
+  flex: 0 0 auto; border-radius: 8px; color: var(--accent);
+  background: var(--accent-bg);
+}
+.file-picker-icon svg { width: 17px; height: 17px; }
+.file-picker-copy {
+  min-width: 0; display: flex; flex-direction: column; gap: 2px;
+  line-height: 1.25;
+}
+.file-picker-title { font-size: 12px; font-weight: 600; }
+.file-picker-name {
+  min-width: 0; max-width: 190px; overflow: hidden; color: var(--text3);
+  font-size: 11px; text-overflow: ellipsis; white-space: nowrap;
+}
+.file-picker-input:focus-visible + .file-picker {
+  border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg);
+}
+
+/* ── Status badge ── */
+.status {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px; border-radius: 999px; font-size: 11px;
+  font-weight: 600; letter-spacing: 0.2px;
+}
+.status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; }
+.status-idle { background: var(--bg3); color: var(--text3); }
+.status-idle::before { background: var(--text3); }
+.status-running { background: var(--yellow-bg); color: var(--yellow); }
+.status-running::before { background: var(--yellow); animation: pulse 1.5s infinite; }
+.status-completed { background: var(--green-bg); color: var(--green); }
+.status-completed::before { background: var(--green); }
+.status-failed { background: var(--red-bg); color: var(--red); }
+.status-failed::before { background: var(--red); }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+/* ── Log box ── */
+.log-box {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 9px;
+  padding: 12px; margin-top: 14px; max-height: 240px; overflow-y: auto;
+  font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+  font-size: 12px; line-height: 1.6; color: var(--text2);
+  white-space: pre-wrap; word-break: break-all; display: none;
+}
+.log-box.show { display: block; }
+.log-box::-webkit-scrollbar, .conv-list-box::-webkit-scrollbar { width: 7px; }
+.log-box::-webkit-scrollbar-thumb, .conv-list-box::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+.meta { font-size: 12px; color: var(--text3); margin-top: 8px; }
+.meta a, .page-head a { color: var(--accent); text-decoration: none; }
+.meta a:hover, .page-head a:hover { text-decoration: underline; }
+
+/* ── Custom filter chips ── */
+.chip-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 10px; border-radius: 999px; font-size: 12px;
+  background: var(--accent-bg); color: var(--accent); border: 1px solid transparent;
+}
+.chip .remove { cursor: pointer; opacity: 0.6; font-size: 14px; line-height: 1; margin-left: 2px; }
+.chip .remove:hover { opacity: 1; color: var(--red); }
+
+/* ── Cookie import ── */
+.cookie-import-area {
+  display: none; margin-top: 14px; padding: 16px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 9px;
+}
+.cookie-import-area.show { display: block; }
+.cookie-import-area textarea {
+  width: 100%; min-height: 100px; background: var(--bg3);
+  border: 1px solid var(--border); color: var(--text);
+  padding: 10px 12px; border-radius: 9px;
+  font-family: 'SF Mono','Cascadia Code','Consolas',monospace;
+  font-size: 12px; line-height: 1.5; resize: vertical; outline: none; box-sizing: border-box;
+}
+.cookie-import-area textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+.cookie-import-hint { font-size: 12px; color: var(--text3); line-height: 1.7; margin-bottom: 10px; }
+.cookie-import-hint ol { padding-left: 18px; margin: 6px 0; }
+.cookie-import-hint code { background: var(--bg3); padding: 1px 5px; border-radius: 3px; font-size: 11px; font-family: 'SF Mono','Consolas',monospace; }
+.cookie-import-feedback { margin-top: 8px; font-size: 12px; min-height: 18px; }
+.cookie-import-feedback.success { color: var(--green); }
+.cookie-import-feedback.error { color: var(--red); }
+
+.inline-error {
+  margin-top: 10px; padding: 8px 12px; background: var(--red-bg);
+  border: 1px solid var(--red); color: var(--red); border-radius: 8px; font-size: 13px; line-height: 1.4;
+}
+
+/* ── Schedule ── */
+.schedule-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.schedule-row input[type=text] { width: 80px; text-align: center; }
+.cron-preset {
+  font-size: 11px; color: var(--accent); cursor: pointer;
+  padding: 3px 9px; border-radius: 999px; background: var(--accent-bg);
+  border: 1px solid transparent; transition: filter 0.15s;
+}
+.cron-preset:hover { filter: brightness(1.15); }
+
+/* ── Conversation checkbox list ── */
+.conv-list-box {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 6px 10px; max-height: 240px; overflow-y: auto; padding: 10px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 9px; margin-top: 8px;
+}
+.conv-check {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 13px; color: var(--text); cursor: pointer;
+  padding: 4px 6px; border-radius: 6px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.conv-check:hover { background: color-mix(in srgb, var(--text) 6%, transparent); }
+.conv-check input[type=checkbox] { accent-color: var(--accent); cursor: pointer; flex-shrink: 0; }
+.conv-list-empty { padding: 14px; text-align: center; font-size: 12px; color: var(--text3); grid-column: 1 / -1; }
+.conv-list-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--text2); }
+.conv-list-toolbar a { color: var(--accent); text-decoration: none; }
+.conv-list-toolbar a:hover { text-decoration: underline; }
+.conv-list-toolbar .sep { color: var(--text3); }
+
+/* ── Language switcher ── */
+.lang-switcher {
+  display: inline-flex; gap: 2px; padding: 3px; background: var(--bg3);
+  border-radius: 9px; border: 1px solid var(--border); font-size: 12px; align-self: flex-start;
+}
+.lang-switcher button {
+  background: transparent; border: none; color: var(--text2);
+  padding: 4px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600;
+}
+.lang-switcher button.active { background: var(--accent); color: #fff; }
+
+/* Theme switcher */
+.theme-switcher { display: flex; gap: 7px; align-items: center; padding: 0 4px; }
+.theme-dot {
+  width: 20px; height: 20px; border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.14); cursor: pointer; transition: transform 0.15s, box-shadow 0.15s;
+}
+.theme-dot:hover { transform: scale(1.15); }
+.theme-dot.active { box-shadow: 0 0 0 2px var(--bg2), 0 0 0 4px var(--accent); }
+.theme-dot[data-t="dark"]   { background: #f2586e; }
+.theme-dot[data-t="light"]  { background: #f7f7f9; border-color: #d0d7de; }
+.theme-dot[data-t="ocean"]  { background: #35c0d6; }
+.theme-dot[data-t="purple"] { background: #b57cff; }
+
+.viewer-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 9px 14px; border-radius: 9px; font-size: 13px; font-weight: 600;
+  color: var(--accent); background: var(--accent-bg); border: 1px solid transparent;
+  text-decoration: none; transition: filter 0.15s;
+}
+.viewer-btn:hover { filter: brightness(1.1); }
+
+/* ── Toggle switch (schedule enable) ── */
+.switch { position: relative; width: 38px; height: 22px; cursor: pointer; }
+.switch input { display: none; }
+.switch .slider { position: absolute; inset: 0; background: var(--bg3); border-radius: 22px; border: 1px solid var(--border); transition: all 0.2s; }
+.switch .slider::before { content: ''; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--text3); transition: all 0.2s; }
+.switch input:checked + .slider { background: var(--accent-bg); border-color: var(--accent); }
+.switch input:checked + .slider::before { transform: translateX(16px); background: var(--accent); }
+
+/* ── Toggle (incr/full) ── */
+.toggle { display: flex; border-radius: 9px; overflow: hidden; border: 1px solid var(--border); background: var(--bg3); }
+.toggle label { padding: 7px 16px; font-size: 12px; cursor: pointer; transition: all 0.15s; color: var(--text2); font-weight: 600; }
+.toggle input { display: none; }
+.toggle input:checked + label { background: var(--accent); color: #fff; }
+
+/* ── Login overlay ── */
+#loginOverlay { position: fixed; inset: 0; z-index: 9999; background: var(--bg); display: flex; align-items: center; justify-content: center; }
+
+/* ── Confirmation modal ── */
+.confirm-modal {
+  position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center;
+  padding: 24px; background: rgba(15, 16, 20, 0.58);
+  backdrop-filter: blur(4px); animation: modalFadeIn 0.16s ease-out;
+}
+.confirm-modal[hidden] { display: none; }
+.confirm-dialog {
+  width: min(470px, 100%); padding: 22px; background: var(--bg2);
+  border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 18px 60px rgba(0,0,0,0.28);
+  animation: modalSlideIn 0.18s ease-out;
+}
+.confirm-head { display: flex; align-items: flex-start; gap: 13px; }
+.confirm-icon {
+  width: 36px; height: 36px; flex: 0 0 auto; display: grid; place-items: center;
+  border-radius: 11px; color: var(--yellow); background: var(--yellow-bg);
+  font-size: 19px; font-weight: 800;
+}
+.confirm-title { padding-top: 2px; color: var(--text); font-size: 15px; font-weight: 700; }
+.confirm-message { margin-top: 8px; color: var(--text2); font-size: 13px; line-height: 1.7; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 21px; }
+@keyframes modalFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modalSlideIn { from { opacity: 0; transform: translateY(5px) scale(0.98); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .confirm-modal, .confirm-dialog { animation: none; }
+}
+
+/* ── Responsive: sidebar collapses to a top bar ── */
+@media (max-width: 820px) {
+  .panel-shell { flex-direction: column; }
+  .sidebar {
+    width: 100%; height: auto; position: static; flex-direction: row;
+    align-items: center; gap: 10px; padding: 12px 14px; overflow-x: auto;
+  }
+  .brand { padding: 0; white-space: nowrap; }
+  .brand span:last-child { display: none; }
+  .nav { flex-direction: row; margin-top: 0; gap: 4px; }
+  .nav-item { border-left: none; padding: 8px 12px; }
+  .nav-item span:last-child { display: none; }
+  .nav-item .ico { font-size: 17px; }
+  .side-foot { margin-top: 0; margin-left: auto; flex-direction: row; align-items: center; gap: 10px; padding-top: 0; }
+  .side-foot .viewer-btn span { display: none; }
+  .panel-main { padding: 20px 16px; }
+}
+@media (max-width: 520px) {
+  .cards { gap: 8px; }
+  .card { padding: 16px 8px; }
+  .card .num { font-size: 24px; }
+  .nav-item span:last-child { display: none; }
+  .panel-topbar { margin: -20px -16px 14px; padding: 12px 16px; }
+  .acct-row { flex-wrap: wrap; }
+  .acct-row .acct-actions { width: 100%; }
+}
+
+/* ── Top bar: account switcher (top-right) ── */
+.panel-topbar {
+  display: flex; align-items: center; justify-content: flex-end;
+  margin: -30px -34px 18px; padding: 14px 34px;
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 50;
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}
+.acct-switch { position: relative; }
+.acct-chip {
+  display: inline-flex; align-items: center; gap: 9px;
+  padding: 5px 12px 5px 5px; border-radius: 999px;
+  background: var(--bg2); border: 1px solid var(--border);
+  cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text);
+  transition: border-color 0.15s; max-width: min(300px, 70vw);
+}
+.acct-chip:hover { border-color: var(--accent); }
+.acct-chip .acct-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-chip .acct-caret { color: var(--text3); font-size: 10px; flex-shrink: 0; }
+.acct-menu {
+  position: absolute; right: 0; top: calc(100% + 6px); min-width: 230px; max-width: 320px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 10px 34px rgba(0,0,0,0.28); padding: 6px; z-index: 100; display: none;
+}
+.acct-menu.show { display: block; animation: pageIn 0.15s ease; }
+.acct-menu-item {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 8px 10px; border-radius: 8px; cursor: pointer; border: none; background: none;
+  color: var(--text); font-size: 13px; font-weight: 500; text-align: left;
+}
+.acct-menu-item:hover { background: var(--accent-bg); }
+.acct-menu-item .tick { width: 14px; color: var(--accent); flex-shrink: 0; font-size: 12px; text-align: center; }
+.acct-menu-item .mi-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-menu-sep { height: 1px; background: var(--border); margin: 6px 4px; }
+
+/* ── Avatars ── */
+.acct-ava { border-radius: 50%; object-fit: cover; background: var(--bg3); flex-shrink: 0; display: block; }
+.acct-ava-fallback { border-radius: 50%; background: var(--accent-bg); color: var(--accent); display: inline-grid; place-items: center; font-weight: 700; flex-shrink: 0; }
+.ava-22 { width: 22px; height: 22px; font-size: 11px; }
+.ava-26 { width: 26px; height: 26px; font-size: 12px; }
+.ava-40 { width: 40px; height: 40px; font-size: 16px; }
+
+/* ── Account list rows ── */
+.acct-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px;
+  background: var(--bg3); margin-bottom: 10px;
+}
+.acct-row.active { border-color: var(--accent); background: var(--accent-bg); }
+.acct-row .acct-info { flex: 1; min-width: 0; }
+.acct-row .acct-title { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.acct-row .acct-sub { font-size: 12px; color: var(--text3); margin-top: 3px; word-break: break-all; }
+.acct-row .acct-actions { display: flex; gap: 6px; flex-shrink: 0; flex-wrap: wrap; }
+.tag { font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 600; background: var(--bg2); color: var(--text2); }
+.tag-active { background: var(--accent-bg); color: var(--accent); }
+.tag-ok { background: var(--green-bg); color: var(--green); }
+.tag-warn { background: var(--yellow-bg); color: var(--yellow); }
+.tag-err { background: var(--red-bg); color: var(--red); }
+</style>
+</head>
+<body data-theme="dark">
+<div id="loginOverlay" style="display:none;position:fixed;inset:0;z-index:9999;background:var(--bg);display:flex;align-items:center;justify-content:center;">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:32px;width:320px;box-shadow:var(--shadow);text-align:center;">
+    <h2 style="margin:0 0 8px;color:var(--text);" data-i18n="panelTitle">控制面板</h2>
+    <p style="margin:0 0 20px;color:var(--text2);font-size:14px;" data-i18n="enterPasswordPrompt">请输入密码</p>
+    <input id="panelPwInput" type="password" data-i18n-placeholder="password" placeholder="密码" onkeydown="if(event.key==='Enter')panelLogin()"
+      style="width:100%;box-sizing:border-box;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:15px;margin-bottom:12px;outline:none;">
+    <button onclick="panelLogin()" style="width:100%;padding:10px;border:none;border-radius:8px;background:var(--accent);color:#fff;font-size:15px;cursor:pointer;" data-i18n="loginBtn">登录</button>
+    <div id="panelLoginErr" style="margin-top:10px;color:var(--red);font-size:13px;"></div>
+  </div>
+</div>
+<div id="confirmModal" class="confirm-modal" hidden onclick="if(event.target===this)closeConfirmModal(false)">
+  <div class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle" aria-describedby="confirmModalMessage">
+    <div class="confirm-head">
+      <div class="confirm-icon" aria-hidden="true">!</div>
+      <div>
+        <div class="confirm-title" id="confirmModalTitle" data-i18n="fullScrapeConfirmTitle">确认全量采集</div>
+        <div class="confirm-message" id="confirmModalMessage"></div>
+      </div>
+    </div>
+    <div class="confirm-actions">
+      <button class="btn btn-outline" id="confirmModalCancel" type="button" onclick="closeConfirmModal(false)" data-i18n="cancel">取消</button>
+      <button class="btn btn-danger" id="confirmModalOk" type="button" onclick="closeConfirmModal(true)" data-i18n="fullScrapeConfirmOk">继续采集</button>
+    </div>
+  </div>
+</div>
+<div class="panel-shell" id="mainContainer" style="display:none;">
+
+  <aside class="sidebar">
+    <div class="brand"><span class="brand-dot"></span><span data-i18n="appTitle">抖音聊天记录导出</span></div>
+    <nav class="nav">
+      <div class="nav-item active" data-page="overview" onclick="showPage('overview')"><span class="ico">◫</span><span data-i18n="navOverview">概览</span></div>
+      <div class="nav-item" data-page="scrape" onclick="showPage('scrape')"><span class="ico">⭳</span><span data-i18n="navScrape">采集</span></div>
+      <div class="nav-item" data-page="schedule" onclick="showPage('schedule')"><span class="ico">◷</span><span data-i18n="navSchedule">定时</span></div>
+      <div class="nav-item" data-page="export" onclick="showPage('export')"><span class="ico">⤓</span><span data-i18n="navExport">导出/导入</span></div>
+      <div class="nav-item" data-page="settings" onclick="showPage('settings')"><span class="ico">⚙</span><span data-i18n="navSettings">设置</span></div>
+    </nav>
+    <div class="side-foot">
+      <div class="lang-switcher">
+        <button data-lang="zh" onclick="setLang('zh')">中</button>
+        <button data-lang="en" onclick="setLang('en')">EN</button>
+      </div>
+      <div class="theme-switcher">
+        <div class="theme-dot active" data-t="dark" title="Dark" onclick="setTheme('dark')"></div>
+        <div class="theme-dot" data-t="light" title="Light" onclick="setTheme('light')"></div>
+        <div class="theme-dot" data-t="ocean" title="Ocean" onclick="setTheme('ocean')"></div>
+        <div class="theme-dot" data-t="purple" title="Purple" onclick="setTheme('purple')"></div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="panel-main">
+
+    <!-- Overview -->
+    <div class="panel-page active" id="page-overview">
+      <div class="page-head"><h1 data-i18n="navOverview">概览</h1><p data-i18n="overviewDesc">导出统计与快捷状态。</p></div>
+      <div class="cards">
+        <div class="card"><div class="num" id="convCount">-</div><div class="label" data-i18n="statConversations">会话</div></div>
+        <div class="card"><div class="num" id="msgCount">-</div><div class="label" data-i18n="statMessages">消息</div></div>
+        <div class="card"><div class="num" id="userCount">-</div><div class="label" data-i18n="statUsers">用户</div></div>
+      </div>
+    </div>
+
+    <!-- Scrape (conversation list + scraper) -->
+    <div class="panel-page" id="page-scrape">
+      <div class="page-head"><h1 data-i18n="navScrape">采集</h1><p data-i18n="convListHint">点击"刷新会话列表"从抖音加载全部会话，然后在下方勾选需要采集的会话。</p></div>
+  <div class="section">
+    <h2><span data-i18n="convListTitle">会话列表</span> <span class="status status-idle" id="discoverStatus" data-i18n="idle">闲置</span></h2>
+    <div class="row">
+      <button class="btn btn-primary" id="refreshConvsBtn" onclick="refreshConvs()" data-i18n="refreshConvList">刷新会话列表</button>
+      <button class="btn btn-danger" id="stopRefreshBtn" onclick="stopRefreshConvs()" style="display:none" data-i18n="cancel">取消</button>
+      <span class="meta" id="discoverMeta"></span>
+    </div>
+    <div id="refreshError" class="inline-error" style="display:none;"></div>
+    <div class="meta" id="discoverHint" style="margin-top:6px;" data-i18n="convListHint">点击"刷新会话列表"从抖音加载全部会话，然后在下方采集/导出/定时各节勾选需要处理的会话。</div>
+    <div class="log-box" id="discoverLog"></div>
+  </div>
+  <div class="section">
+    <h2><span data-i18n="scraperTitle">采集</span> <span class="status status-idle" id="scrapeStatus" data-i18n="idle">闲置</span></h2>
+    <div class="row">
+      <div class="toggle">
+        <input type="radio" name="mode" id="modeIncr" value="incremental" checked>
+        <label for="modeIncr" data-i18n="incremental">增量</label>
+        <input type="radio" name="mode" id="modeFull" value="full">
+        <label for="modeFull" data-i18n="full">全量</label>
+      </div>
+      <button class="btn btn-primary" id="scrapeBtn" onclick="startScrape()" data-i18n="start">开始</button>
+      <button class="btn btn-danger" id="stopBtn" onclick="stopScrape()" style="display:none" data-i18n="stop">停止</button>
+    </div>
+    <div class="conv-list-toolbar" style="margin-top:10px;">
+      <span data-i18n="selectConvsLabel">选择会话:</span>
+      <a href="#" onclick="selectAllConvs('scrape',true);return false;" data-i18n="selectAll">全选</a>
+      <span class="sep">·</span>
+      <a href="#" onclick="selectAllConvs('scrape',false);return false;" data-i18n="selectNone">清空</a>
+      <span class="sep">·</span>
+      <a href="#" onclick="syncSparkFriends();return false;" data-i18n="syncSparkFriends">同步火花好友</a>
+      <span class="sep">·</span>
+      <span id="scrapeConvCount">0 / 0</span>
+    </div>
+    <div class="meta" id="sparkSyncMsg"></div>
+    <div class="conv-list-box" id="scrapeConvList"></div>
+    <div class="meta" id="scrapeTime"></div>
+    <div class="log-box" id="scrapeLog"></div>
+  </div>
+  <div class="section">
+    <h2 data-i18n="voiceBackfillTitle">语音转写补充</h2>
+    <div class="meta" style="margin-bottom:10px" data-i18n="voiceBackfillDesc">只处理当前数据库中尚未成功转写的语音，不重新采集聊天记录。</div>
+    <div class="row">
+      <button class="btn btn-primary" id="voiceBackfillBtn" onclick="startVoiceBackfill()" data-i18n="voiceBackfillBtn">补充历史语音转写</button>
+      <span class="status status-idle" id="voiceBackfillStatus" data-i18n="idle">闲置</span>
+    </div>
+    <div class="meta" id="voiceBackfillMsg" style="margin-top:6px"></div>
+    <div class="log-box" id="voiceBackfillLog"></div>
+  </div>
+  <div class="section">
+    <h2 data-i18n="mediaTitle">媒体下载</h2>
+    <div class="meta" style="margin-bottom:10px" data-i18n="mediaDesc">采集时将图片/表情包下载到本地，避免抖音 CDN 链接过期后无法显示。</div>
+    <label class="conv-check" style="margin-bottom:10px;cursor:pointer;">
+      <input type="checkbox" id="downloadImagesToggle" onchange="toggleDownloadImages()">
+      <span data-i18n="autoDownloadNew">新采集消息自动下载图片到本地</span>
+    </label>
+    <div class="row">
+      <button class="btn btn-primary" id="backfillBtn" onclick="startBackfill()" data-i18n="backfillBtn">下载历史图片</button>
+      <span class="status status-idle" id="backfillStatus" data-i18n="idle">闲置</span>
+    </div>
+    <div class="meta" id="backfillMsg" style="margin-top:6px"></div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn btn-primary" id="videoBackfillBtn" onclick="startVideoBackfill()" data-i18n="videoBackfillBtn">下载历史视频</button>
+      <span class="status status-idle" id="videoBackfillStatus" data-i18n="idle">闲置</span>
+      <span class="meta" id="videoPendingCount" style="margin-left:8px"></span>
+    </div>
+    <div class="meta" id="videoBackfillMsg" style="margin-top:6px"></div>
+  </div>
+    </div>
+
+    <!-- Schedule -->
+    <div class="panel-page" id="page-schedule">
+      <div class="page-head"><h1 data-i18n="scheduleTitle">定时任务</h1></div>
+  <div class="section">
+    <h2 data-i18n="scheduleTitle">定时任务</h2>
+    <div class="schedule-row">
+      <label class="switch">
+        <input type="checkbox" id="scheduleEnabled">
+        <span class="slider"></span>
+      </label>
+      <div style="display:flex;gap:4px;align-items:center;flex:1;">
+        <input type="text" id="cronMin" value="0" style="width:42px;text-align:center" placeholder="min">
+        <input type="text" id="cronHour" value="0" style="width:42px;text-align:center" placeholder="hour">
+        <input type="text" id="cronDay" value="*" style="width:42px;text-align:center" placeholder="day">
+        <input type="text" id="cronMonth" value="*" style="width:42px;text-align:center" placeholder="mon">
+        <input type="text" id="cronDow" value="*" style="width:42px;text-align:center" placeholder="dow">
+      </div>
+      <button class="btn btn-outline btn-sm" onclick="updateSchedule()" data-i18n="apply">应用</button>
+    </div>
+    <div style="margin-top:6px;display:flex;gap:12px;flex-wrap:wrap;">
+      <span style="font-size:11px;color:var(--text3);" data-i18n="cronHint">分 时 日 月 周</span>
+      <span class="cron-preset" onclick="setCron('0 0 * * *')" data-i18n="cronMidnight">每天 00:00</span>
+      <span class="cron-preset" onclick="setCron('0 */6 * * *')" data-i18n="cron6h">每 6 小时</span>
+      <span class="cron-preset" onclick="setCron('0 8,20 * * *')" data-i18n="cron8am8pm">每天 8 点 & 20 点</span>
+      <span class="cron-preset" onclick="setCron('30 2 * * 1')" data-i18n="cronMon">周一 02:30</span>
+    </div>
+    <div class="conv-list-toolbar" style="margin-top:10px;">
+      <span data-i18n="selectConvsLabel">选择会话:</span>
+      <a href="#" onclick="selectAllConvs('schedule',true);return false;" data-i18n="selectAll">全选</a>
+      <span class="sep">·</span>
+      <a href="#" onclick="selectAllConvs('schedule',false);return false;" data-i18n="selectNone">清空</a>
+      <span class="sep">·</span>
+      <span id="scheduleConvCount">0 / 0</span>
+    </div>
+    <div class="conv-list-box" id="scheduleConvList"></div>
+    <div class="meta" id="scheduleMeta" style="margin-top:6px;"></div>
+  </div>
+    </div>
+
+    <!-- Export (export + media) -->
+    <div class="panel-page" id="page-export">
+      <div class="page-head"><h1 data-i18n="exportTitle">导出/导入</h1></div>
+  <div class="section">
+    <h2><span data-i18n="exportTitle">导出/导入</span> <span class="status status-idle" id="exportStatus" data-i18n="idle">闲置</span></h2>
+    <div class="row">
+      <select id="exportFormat" onchange="updateExportMode()">
+        <option value="jsonl">JSONL</option>
+        <option value="json">JSON</option>
+        <option value="database" data-i18n="databaseFormat">整个数据库（SQLite，可导入）</option>
+      </select>
+      <button class="btn btn-primary" id="exportBtn" onclick="startExport()" data-i18n="exportBtn">导出</button>
+      <a class="btn btn-success" id="downloadBtn" style="display:none;text-decoration:none" href="/panel/api/export/download" data-i18n="download">下载</a>
+    </div>
+    <div class="meta" id="databaseExportHint" style="display:none;margin-top:6px" data-i18n="databaseExportHint">整库导出会生成一个可在本面板覆盖导入的 SQLite 文件。</div>
+    <div id="exportConversationOptions">
+    <div class="conv-list-toolbar" style="margin-top:10px;">
+      <span data-i18n="selectConvsLabel">选择会话:</span>
+      <a href="#" onclick="selectAllConvs('export',true);return false;" data-i18n="selectAll">全选</a>
+      <span class="sep">·</span>
+      <a href="#" onclick="selectAllConvs('export',false);return false;" data-i18n="selectNone">清空</a>
+      <span class="sep">·</span>
+      <span id="exportConvCount">0 / 0</span>
+    </div>
+    <div class="conv-list-box" id="exportConvList"></div>
+    </div>
+    <div class="meta" id="exportMsg"></div>
+  </div>
+  <div class="section">
+    <h2 data-i18n="databaseImportTitle">数据库导入</h2>
+    <div class="meta" style="margin-bottom:10px" data-i18n="databaseImportDesc">选择之前导出的 SQLite 文件，可导入到任意账号。默认增量合并：同一会话只补新消息，不删除现有记录；不同账号导出的同一个群聊会合并成一份完整记录。</div>
+    <div class="row" style="margin-bottom:10px;flex-wrap:wrap;gap:16px">
+      <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2)">
+        <span data-i18n="databaseImportAccount">导入到账号</span>
+        <select id="databaseImportAccount"></select>
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2)">
+        <span data-i18n="databaseImportMode">导入方式</span>
+        <select id="databaseImportMode" onchange="updateDatabaseImportModeStyle()">
+          <option value="merge" data-i18n="databaseImportModeMerge">增量合并（保留现有记录）</option>
+          <option value="replace" data-i18n="databaseImportModeReplace">覆盖整库</option>
+        </select>
+      </label>
+    </div>
+    <div class="row database-import-row">
+      <input type="file" id="databaseImportFile" class="file-picker-input" accept=".db,.sqlite,.sqlite3,application/octet-stream" onchange="updateDatabaseFileName(this)">
+      <label class="file-picker" for="databaseImportFile">
+        <span class="file-picker-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3v12m0-12-4 4m4-4 4 4M5 14v5h14v-5" />
+          </svg>
+        </span>
+        <span class="file-picker-copy">
+          <span class="file-picker-title" data-i18n="databaseChooseFile">选择 SQLite 文件</span>
+          <span class="file-picker-name" id="databaseImportFileName">未选择任何文件</span>
+        </span>
+      </label>
+      <button class="btn btn-primary" id="databaseImportBtn" onclick="importDatabase()" data-i18n="databaseImportBtn">开始导入</button>
+    </div>
+    <div class="meta" id="databaseImportMsg" style="margin-top:6px"></div>
+  </div>
+    </div>
+
+    <!-- Settings (password + notify) -->
+    <div class="panel-page" id="page-settings">
+      <div class="page-head"><h1 data-i18n="navSettings">设置</h1></div>
+  <div class="section">
+    <h2 data-i18n="passwordTitle">密码</h2>
+    <div class="meta" style="margin-bottom:8px" data-i18n="passwordDesc">设置密码以保护聊天查看器和控制面板。</div>
+    <div class="row">
+      <input type="password" id="pwInput" data-i18n-placeholder="enterPassword" placeholder="输入密码" style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg)">
+      <button class="btn btn-primary" onclick="setPassword()" data-i18n="setBtn">设置</button>
+      <button class="btn" onclick="clearPassword()" data-i18n="clearBtn">清除</button>
+    </div>
+    <div class="meta" id="pwStatus" style="margin-top:6px"></div>
+  </div>
+  <div class="section">
+    <h2 data-i18n="notifyTitle">通知</h2>
+    <div class="meta" style="margin-bottom:8px">
+      <span data-i18n="notifyDesc">采集失败时通过 Server酱 推送到微信。</span>
+      <a href="https://sct.ftqq.com" target="_blank" rel="noopener">sct.ftqq.com</a>
+    </div>
+    <div class="row">
+      <input type="password" id="notifyKeyInput" data-i18n-placeholder="notifyPlaceholder" placeholder="SCT... SendKey" style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg)">
+      <button class="btn btn-primary" onclick="saveNotifyKey()" data-i18n="setBtn">设置</button>
+      <button class="btn" onclick="clearNotifyKey()" data-i18n="clearBtn">清除</button>
+      <button class="btn" onclick="testNotify()" data-i18n="notifyTestBtn">测试</button>
+    </div>
+    <div class="meta" id="notifyStatus" style="margin-top:6px"></div>
+  </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+/* ── i18n ── */
+const T = {
+  zh: {
+    appTitle: '抖音聊天记录导出',
+    navOverview: '概览', navScrape: '采集', navSchedule: '定时', navExport: '导出/导入', navLogin: '账号', navSettings: '设置',
+    overviewDesc: '导出统计与快捷状态。',
+    panelTitle: '控制面板',
+    enterPasswordPrompt: '请输入密码',
+    password: '密码',
+    loginBtn: '登录',
+    statConversations: '会话',
+    statMessages: '消息',
+    statUsers: '用户',
+    loginTitle: '登录',
+    scanQr: '远程扫码登录',
+    cancel: '取消',
+    clearSession: '删除当前账号',
+    loadingAccount: '加载中...',
+    noAccounts: '未登录账号',
+    addAccount: '添加账号',
+    manageAccounts: '管理账号',
+    accountsTitle: '账号管理',
+    accountsDesc: '管理多个抖音账号的登录态（Cookie）。采集、导出与定时任务均使用当前账号。',
+    accountListTitle: '已登录的账号',
+    addAccountTitle: '添加账号',
+    accountsEmpty: '还没有账号。点击下方「弹出浏览器登录」或「导入 Cookie」添加第一个账号。',
+    browserLoginBtn: '弹出浏览器登录',
+    browserLoginHint: '会在本机弹出一个浏览器窗口，用抖音 APP 扫码后自动保存为账号并切换。Docker 部署无法弹出浏览器，请用「远程扫码登录」。',
+    browserLoginStarting: '正在启动浏览器...',
+    browserLoginWaiting: '请在弹出的浏览器窗口中扫码登录（5 分钟内有效）',
+    browserLoginFinalizing: '登录成功，正在保存账号...',
+    browserLoginFailed: '浏览器登录失败',
+    accountAdded: (name) => '已添加账号「' + name + '」并设为当前账号',
+    currentLoginTitle: '当前账号登录态',
+    recheck: '重新检测',
+    switchTo: '切换',
+    switchFailed: '切换失败',
+    refreshAccount: '刷新',
+    deleteAccount: '删除',
+    deleteFailed: '删除失败',
+    deleteAccountConfirm: (name) => '确定删除账号「' + name + '」？将同时删除该账号的登录态、Cookie、聊天记录与火花任务，且不可恢复。',
+    accountSwitched: (name) => '已切换到账号「' + name + '」',
+    accountDeleted: '账号已删除',
+    uidLabel: (uid) => 'UID: ' + uid,
+    lastUsed: (t) => '最近使用: ' + t,
+    neverUsed: '从未使用',
+    accountStatusLoggedIn: '登录有效',
+    accountStatusExpired: '已过期',
+    accountStatusNoProfile: '未登录',
+    accountStatusUnknown: '状态未知',
+    activeTag: '当前',
+    clickScreenshotHint: '点击截图进行交互。下方输入文本后回车发送。',
+    typeAndEnter: '输入文字后回车发送...',
+    convListTitle: '会话列表',
+    refreshConvList: '刷新会话列表',
+    convListHint: '点击"刷新会话列表"从抖音加载全部会话，然后在下方采集/导出/定时各节勾选需要处理的会话。',
+    scraperTitle: '采集',
+    incremental: '增量',
+    full: '全量',
+    start: '开始',
+    stop: '停止',
+    voiceBackfillTitle: '语音转写补充',
+    voiceBackfillDesc: '只处理当前数据库中尚未成功转写的语音，不重新采集聊天记录；缺少 sec_uid 时会先用本地已有消息按 sender_uid 安全补齐。',
+    voiceBackfillBtn: '补充历史语音转写',
+    selectConvsLabel: '选择会话:',
+    selectAll: '全选',
+    selectNone: '清空',
+    syncSparkFriends: '同步火花好友',
+    sparkScopeTasks: '火花任务',
+    sparkScopeFriends: '火花好友',
+    sparkFriendsEmpty: '火花任务里还没有配置好友',
+    sparkFriendsSynced: (scope, total, matched) => `已按${scope}选中 ${total} 个会话（其中 ${matched} 个在已发现列表里）`,
+    sparkFriendsFailed: '读取火花好友失败',
+    scheduleTitle: '定时任务',
+    apply: '应用',
+    cronHint: '分 时 日 月 周',
+    cronMidnight: '每天 00:00',
+    cron6h: '每 6 小时',
+    cron8am8pm: '每天 8 点 & 20 点',
+    cronMon: '周一 02:30',
+    exportTitle: '导出/导入',
+    exportBtn: '导出',
+    download: '下载',
+    databaseFormat: '整个数据库（SQLite，可导入）',
+    databaseExportHint: '整库导出会生成一个可在本面板导入的 SQLite 文件。',
+    databaseImportTitle: '数据库导入',
+    databaseImportDesc: '选择之前导出的 SQLite 文件，可导入到任意账号。默认增量合并：同一会话只补新消息，不删除现有记录；不同账号导出的同一个群聊会合并成一份完整记录。',
+    databaseImportAccount: '导入到账号',
+    databaseImportMode: '导入方式',
+    databaseImportModeMerge: '增量合并（保留现有记录）',
+    databaseImportModeReplace: '覆盖整库',
+    databaseChooseFile: '选择 SQLite 文件',
+    databaseNoFile: '未选择任何文件',
+    databaseImportBtn: '开始导入',
+    databaseImportEmpty: '请选择 SQLite 数据库文件',
+    databaseImportRunning: '正在导入数据库，请稍候...',
+    databaseImportSuccess: '数据库导入完成，请刷新会话列表。',
+    confirmDatabaseImportMerge: (name) => `将把文件中的会话和消息增量合并到账号「${name}」，同一会话只补新消息，不删除现有记录。确定继续吗？`,
+    confirmDatabaseImportReplace: (name) => `将用该文件覆盖账号「${name}」的整个数据库（导入前会自动备份旧库）。确定继续吗？`,
+    passwordTitle: '密码',
+    passwordDesc: '设置密码以保护聊天查看器和控制面板。',
+    enterPassword: '输入密码',
+    setBtn: '设置',
+    clearBtn: '清除',
+    idle: '空闲',
+    running: '进行中',
+    completed: '已完成',
+    failed: '失败',
+    checking: '检测中...',
+    loginActive: '登录有效',
+    loginExpired: '登录已过期 — 请重新扫码',
+    loginNoProfile: '未登录 — 请扫码登录',
+    sessionCleared: '会话已清除',
+    clearLoginConfirm: '确定清除登录会话？需要重新扫码。',
+    passwordSet: '密码已设置',
+    passwordEmpty: '请输入密码',
+    noPasswordSet: '未设置密码（查看器公开）',
+    passwordIsSet: '密码已设置',
+    notifyTitle: '通知',
+    notifyDesc: '采集失败时通过 Server酱 推送到微信。',
+    notifyPlaceholder: 'SCT... SendKey',
+    notifyTestBtn: '测试',
+    notifyKeySet: '已配置 SendKey',
+    notifyKeyEmpty: '未配置 SendKey',
+    notifyKeyMissing: '请先粘贴 SendKey',
+    startedAt: '开始: ',
+    finishedAt: '完成: ',
+    noOutput: '(无输出)',
+    nextRun: '下次运行: ',
+    noConvsDiscovered: '尚未发现会话。点击上方"刷新会话列表"。',
+    waitingScan: '等待扫码',
+    startingLogin: '正在启动',
+    error: '错误',
+    convsCount: (n, tot) => n + ' / ' + tot,
+    discoveredAt: (t) => '最近刷新: ' + t,
+    discovered: (n) => '发现 ' + n + ' 个会话',
+    confirmMultiExport: (n) => '将导出 ' + n + ' 个会话并打包为 zip，是否继续？',
+    fullScrapeConfirmTitle: '确认全量采集',
+    fullScrapeConfirmOk: '继续采集',
+    confirmFullScrape: '全量采集会先删除目标会话的本地消息，再写入抖音当前能提供的记录。抖音通常只保留约一年，超过一年的本地历史可能丢失。建议先导出整库备份。',
+    mediaTitle: '媒体下载',
+    mediaDesc: '采集时将图片/表情包下载到本地，避免抖音 CDN 链接过期后无法显示。',
+    autoDownloadNew: '新采集消息自动下载图片到本地',
+    backfillBtn: '下载历史图片',
+    backfillRunning: (done, total) => '下载中: ' + done + ' / ' + total,
+    backfillDone: (ok, fail) => '完成：成功 ' + ok + '，失败 ' + fail,
+    videoBackfillBtn: '下载历史视频',
+    videoBackfillRunning: (ok, fail, skip, total) => `下载中: 成功 ${ok}，失败 ${fail}，跳过 ${skip} / ${total}`,
+    videoBackfillDone: (ok, fail, skip) => `完成：成功 ${ok}，失败 ${fail}，跳过 ${skip}`,
+    videoPendingTxt: (n) => `（待下载 ${n} 条）`,
+    importCookie: '导入 Cookie',
+    importBtn: '导入',
+    cookiePlaceholder: '粘贴 Cookie（JSON 数组 或 key=value; 格式）...',
+    cookieHintHtml: '<ol><li>在浏览器中打开 <code>douyin.com</code> 并确保<b>已登录</b></li><li>按 <code>F12</code> 打开开发者工具 → <b>Application</b>（应用）标签</li><li>左侧展开 <b>Cookies</b> → <code>https://www.douyin.com</code></li><li>在 Cookie 表格空白处右键 → <b>Copy all cookies</b></li><li>也可在 Console 中执行 <code>document.cookie</code> 并复制结果</li></ol><div style="margin-top:4px">⚠️ 必须包含 <code>sessionid</code>，否则导入无效。</div>',
+    cookieImportSuccess: (n) => '成功导入 ' + n + ' 个 Cookie，登录状态已更新',
+    accountImportSuccess: (name) => '已保存为账号「' + name + '」并设为当前账号',
+    cookieImportFailed: '导入失败',
+    loginFailed: '登录失败',
+    wrongPassword: '密码错误',
+    refreshFailed: '刷新失败',
+  },
+  en: {
+    appTitle: 'Douyin Chat Export',
+    navOverview: 'Overview', navScrape: 'Scrape', navSchedule: 'Schedule', navExport: 'Export / Import', navLogin: 'Accounts', navSettings: 'Settings',
+    overviewDesc: 'Export stats and quick status.',
+    panelTitle: 'Control Panel',
+    enterPasswordPrompt: 'Please enter password',
+    password: 'Password',
+    loginBtn: 'Login',
+    statConversations: 'Conversations',
+    statMessages: 'Messages',
+    statUsers: 'Users',
+    loginTitle: 'Login',
+    scanQr: 'Remote QR Login',
+    cancel: 'Cancel',
+    clearSession: 'Delete current account',
+    loadingAccount: 'Loading...',
+    noAccounts: 'No account',
+    addAccount: 'Add account',
+    manageAccounts: 'Manage accounts',
+    accountsTitle: 'Accounts',
+    accountsDesc: 'Manage login sessions (cookies) for multiple Douyin accounts. Scraping, export and scheduled tasks all use the active account.',
+    accountListTitle: 'Registered accounts',
+    addAccountTitle: 'Add account',
+    accountsEmpty: 'No accounts yet. Use "Browser login" or "Import Cookie" below to add one.',
+    browserLoginBtn: 'Browser login',
+    browserLoginHint: 'Pops up a browser window on this machine; scan with the Douyin app and the session is saved as an account automatically. Docker deployments cannot pop up a browser — use "Remote QR Login".',
+    browserLoginStarting: 'Starting browser...',
+    browserLoginWaiting: 'Scan the QR code in the popped-up browser window (valid for 5 min)',
+    browserLoginFinalizing: 'Login succeeded, saving account...',
+    browserLoginFailed: 'Browser login failed',
+    accountAdded: (name) => 'Account "' + name + '" added and set active',
+    currentLoginTitle: 'Active account session',
+    recheck: 'Re-check',
+    switchTo: 'Switch',
+    switchFailed: 'Switch failed',
+    refreshAccount: 'Refresh',
+    deleteAccount: 'Delete',
+    deleteFailed: 'Delete failed',
+    deleteAccountConfirm: (name) => 'Delete account "' + name + '"? This removes its login session, cookies, chat history and spark tasks permanently.',
+    accountSwitched: (name) => 'Switched to account "' + name + '"',
+    accountDeleted: 'Account deleted',
+    uidLabel: (uid) => 'UID: ' + uid,
+    lastUsed: (t) => 'Last used: ' + t,
+    neverUsed: 'Never used',
+    accountStatusLoggedIn: 'Session valid',
+    accountStatusExpired: 'Expired',
+    accountStatusNoProfile: 'Not logged in',
+    accountStatusUnknown: 'Unknown',
+    activeTag: 'Active',
+    clickScreenshotHint: 'Click the screenshot to interact. Type below to input text.',
+    typeAndEnter: 'Type here and press Enter to send...',
+    convListTitle: 'Conversations',
+    refreshConvList: 'Refresh conversation list',
+    convListHint: 'Click "Refresh conversation list" to load all conversations from Douyin, then check the ones you want in each section below.',
+    scraperTitle: 'Scraper',
+    incremental: 'Incremental',
+    full: 'Full',
+    start: 'Start',
+    stop: 'Stop',
+    voiceBackfillTitle: 'Voice transcription backfill',
+    voiceBackfillDesc: 'Process only unrecognized voices already in the local database; do not fetch chat history again. Missing sec_uid values are safely filled from existing sender_uid mappings first.',
+    voiceBackfillBtn: 'Backfill voice transcriptions',
+    selectConvsLabel: 'Select conversations:',
+    selectAll: 'Select all',
+    selectNone: 'Clear',
+    syncSparkFriends: 'Use spark friends',
+    sparkScopeTasks: 'spark tasks',
+    sparkScopeFriends: 'spark friends',
+    sparkFriendsEmpty: 'No friends configured in the spark tasks yet',
+    sparkFriendsSynced: (scope, total, matched) => `Selected ${total} ${scope} (${matched} found in the discovered list)`,
+    sparkFriendsFailed: 'Failed to load spark friends',
+    scheduleTitle: 'Schedule',
+    apply: 'Apply',
+    cronHint: 'min hour day month weekday',
+    cronMidnight: 'Every midnight',
+    cron6h: 'Every 6 hours',
+    cron8am8pm: '8AM & 8PM',
+    cronMon: 'Mon 2:30AM',
+    exportTitle: 'Export / Import',
+    exportBtn: 'Export',
+    download: 'Download',
+    databaseFormat: 'Entire database (SQLite, importable)',
+    databaseExportHint: 'The full export is a SQLite file that can be imported here.',
+    databaseImportTitle: 'Import database',
+    databaseImportDesc: 'Choose a SQLite file exported earlier and import it into any account. Merge (default) only adds new messages and keeps existing records; the same group chat exported from different accounts is merged into one history.',
+    databaseImportAccount: 'Import into account',
+    databaseImportMode: 'Import mode',
+    databaseImportModeMerge: 'Incremental merge (keep existing)',
+    databaseImportModeReplace: 'Replace whole database',
+    databaseChooseFile: 'Choose SQLite file',
+    databaseNoFile: 'No file selected',
+    databaseImportBtn: 'Start import',
+    databaseImportEmpty: 'Choose a SQLite database file first',
+    databaseImportRunning: 'Importing database, please wait...',
+    databaseImportSuccess: 'Database imported. Refresh the conversation list.',
+    confirmDatabaseImportMerge: (name) => `Merge the file into account "${name}": only new messages are added, existing records are kept. Continue?`,
+    confirmDatabaseImportReplace: (name) => `Replace the whole database of account "${name}" with this file (an automatic backup is kept). Continue?`,
+    passwordTitle: 'Password',
+    passwordDesc: 'Set a password to protect the chat viewer and panel.',
+    enterPassword: 'Enter password',
+    setBtn: 'Set',
+    clearBtn: 'Clear',
+    idle: 'idle',
+    running: 'running',
+    completed: 'completed',
+    failed: 'failed',
+    checking: 'checking...',
+    loginActive: 'Login session valid',
+    loginExpired: 'Session expired — click Scan QR Login',
+    loginNoProfile: 'No login session — click Scan QR Login',
+    sessionCleared: 'Session cleared',
+    clearLoginConfirm: 'Clear login session? You will need to re-scan QR code.',
+    passwordSet: 'Password saved',
+    passwordEmpty: 'Please enter a password',
+    noPasswordSet: 'No password set (viewer is public)',
+    passwordIsSet: 'Password is set',
+    notifyTitle: 'Notifications',
+    notifyDesc: 'Push a notice to WeChat via Server酱 when scraping fails.',
+    notifyPlaceholder: 'SCT... SendKey',
+    notifyTestBtn: 'Test',
+    notifyKeySet: 'SendKey configured',
+    notifyKeyEmpty: 'No SendKey configured',
+    notifyKeyMissing: 'Paste a SendKey first',
+    startedAt: 'Started: ',
+    finishedAt: 'Finished: ',
+    noOutput: '(no output)',
+    nextRun: 'Next run: ',
+    noConvsDiscovered: 'No conversations discovered yet. Click "Refresh conversation list" above.',
+    waitingScan: 'waiting scan',
+    startingLogin: 'starting',
+    error: 'error',
+    convsCount: (n, tot) => n + ' / ' + tot,
+    discoveredAt: (t) => 'Last refresh: ' + t,
+    discovered: (n) => 'Found ' + n + ' conversations',
+    confirmMultiExport: (n) => 'Export ' + n + ' conversations as a zip. Continue?',
+    fullScrapeConfirmTitle: 'Confirm full scrape',
+    fullScrapeConfirmOk: 'Continue scrape',
+    confirmFullScrape: 'Full scraping first deletes local messages for the target conversations, then writes back what Douyin currently provides. Douyin usually keeps about one year of history, so older local messages may be lost. Export a full database backup first.',
+    mediaTitle: 'Media Download',
+    mediaDesc: 'Download images and emoji during scraping so they remain viewable after Douyin CDN URLs expire.',
+    autoDownloadNew: 'Auto-download images to local for newly scraped messages',
+    backfillBtn: 'Backfill historical images',
+    backfillRunning: (done, total) => 'Downloading: ' + done + ' / ' + total,
+    backfillDone: (ok, fail) => 'Done: ' + ok + ' succeeded, ' + fail + ' failed',
+    videoBackfillBtn: 'Backfill historical videos',
+    videoBackfillRunning: (ok, fail, skip, total) => `Downloading: ${ok} ok, ${fail} failed, ${skip} skipped / ${total}`,
+    videoBackfillDone: (ok, fail, skip) => `Done: ${ok} succeeded, ${fail} failed, ${skip} skipped`,
+    videoPendingTxt: (n) => `(${n} pending)`,
+    importCookie: 'Import Cookie',
+    importBtn: 'Import',
+    cookiePlaceholder: 'Paste cookies (JSON array or key=value; format)...',
+    cookieHintHtml: '<ol><li>Open <code>douyin.com</code> in your browser and make sure you are <b>logged in</b></li><li>Press <code>F12</code> to open DevTools → <b>Application</b> tab</li><li>Expand <b>Cookies</b> → <code>https://www.douyin.com</code> in the left panel</li><li>Right-click the cookie table → <b>Copy all cookies</b></li><li>Or run <code>document.cookie</code> in Console and copy the result</li></ol><div style="margin-top:4px">⚠️ Must include <code>sessionid</code> or the import will fail.</div>',
+    cookieImportSuccess: (n) => 'Successfully imported ' + n + ' cookies, login state updated',
+    cookieImportFailed: 'Import failed',
+    loginFailed: 'Login failed',
+    wrongPassword: 'Wrong password',
+    refreshFailed: 'Refresh failed',
+  },
+};
+
+let lang = localStorage.getItem('panel-lang') || 'zh';
+
+function t(key, ...args) {
+  const v = (T[lang] && T[lang][key]) ?? (T.zh && T.zh[key]) ?? key;
+  return typeof v === 'function' ? v(...args) : v;
+}
+
+function applyI18n() {
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    const v = T[lang]?.[key];
+    if (typeof v === 'string') el.textContent = v;
+  });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+    const key = el.getAttribute('data-i18n-placeholder');
+    const v = T[lang]?.[key];
+    if (typeof v === 'string') el.placeholder = v;
+  });
+  document.querySelectorAll('.lang-switcher button').forEach(b => {
+    b.classList.toggle('active', b.dataset.lang === lang);
+  });
+  document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+}
+
+function setLang(l) {
+  lang = l;
+  localStorage.setItem('panel-lang', l);
+  applyI18n();
+  if (confirmModalResolver && confirmModalMessageKey) {
+    const message = document.getElementById('confirmModalMessage');
+    if (message) message.textContent = t(confirmModalMessageKey);
+  }
+  updateDatabaseFileName(document.getElementById('databaseImportFile'));
+  // Re-render dynamic texts (counts, meta, lists, etc.)
+  renderDiscoverMeta();
+  renderConvCounts();
+  renderAllConvLists();
+  renderAccountSwitcher();
+  renderAccountList();
+  // Refresh composed strings (scrapeTime, scheduleMeta) that are built from t() calls
+  loadStatus();
+}
+
+/* ── Theme ── */
+function setTheme(t) {
+  document.body.setAttribute('data-theme', t);
+  document.querySelectorAll('.theme-dot').forEach(d => d.classList.toggle('active', d.dataset.t === t));
+  localStorage.setItem('panel-theme', t);
+}
+(function() {
+  const saved = localStorage.getItem('panel-theme');
+  if (saved) setTheme(saved);
+})();
+
+/* ── Sidebar navigation: show one page, remember the last ── */
+function showPage(id) {
+  document.querySelectorAll('.panel-page').forEach(p => p.classList.toggle('active', p.id === 'page-' + id));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === id));
+  localStorage.setItem('panel-page', id);
+}
+
+/* ── Conversation selection state ── */
+let discoveredConvs = [];     // [{nickname, name, time, preview}, ...]
+let discoveredAt = 0;
+let selectedMap = {           // section -> Set of nicknames
+  scraper: new Set(),
+  export: new Set(),
+  schedule: new Set(),
+};
+let voiceBackfillActive = false;
+let lastDiscoverStatus = 'idle';
+let lastDiscoverMsg = '';
+
+async function loadStatus() {
+  try {
+    const r = await fetch('/panel/api/status');
+    const d = await r.json();
+    document.getElementById('convCount').textContent = d.conversations;
+    document.getElementById('msgCount').textContent = d.messages.toLocaleString();
+    document.getElementById('userCount').textContent = d.users;
+
+    // Scrape status
+    const ss = d.scrape;
+    const voiceJob = ss.kind === 'voice_backfill' || voiceBackfillActive;
+    const se = document.getElementById('scrapeStatus');
+    setStatusEl(se, voiceJob ? 'idle' : ss.status);
+    document.getElementById('scrapeBtn').disabled = ss.status === 'running';
+    document.getElementById('voiceBackfillBtn').disabled = ss.status === 'running';
+    document.getElementById('stopBtn').style.display = ss.status === 'running' ? '' : 'none';
+    let timeStr = '';
+    if (ss.started_at) timeStr += t('startedAt') + new Date(ss.started_at * 1000).toLocaleString();
+    if (ss.finished_at) timeStr += '  ' + t('finishedAt') + new Date(ss.finished_at * 1000).toLocaleString();
+    if (ss.message) timeStr += '  ' + ss.message;
+    document.getElementById('scrapeTime').textContent = voiceJob ? '' : timeStr;
+
+    setStatusEl(document.getElementById('voiceBackfillStatus'), voiceJob ? ss.status : 'idle');
+    setDynText(document.getElementById('voiceBackfillMsg'), voiceJob ? ss.message : '');
+    if (voiceBackfillActive && ss.status !== 'running') voiceBackfillActive = false;
+
+    if (ss.status === 'running' || ss.status === 'completed' || ss.status === 'failed') {
+      if (voiceJob) loadVoiceBackfillLog();
+      else loadLog();
+    }
+
+    // Export status
+    const es = d.export;
+    const ee = document.getElementById('exportStatus');
+    setStatusEl(ee, es.status);
+    document.getElementById('exportBtn').disabled = es.status === 'running';
+    document.getElementById('exportMsg').textContent = es.message || '';
+    document.getElementById('downloadBtn').style.display = (es.status === 'completed' && es.file_path) ? '' : 'none';
+
+    // Schedule status
+    const sch = d.scheduler;
+    document.getElementById('scheduleEnabled').checked = sch.enabled;
+    if (sch.schedule) {
+      const parts = sch.schedule.split(/\s+/);
+      if (parts.length === 5) {
+        ['cronMin','cronHour','cronDay','cronMonth','cronDow'].forEach((id, i) => {
+          document.getElementById(id).value = parts[i];
+        });
+      }
+    }
+    let schMeta = '';
+    if (sch.enabled && sch.next_run) {
+      schMeta = t('nextRun') + new Date(sch.next_run * 1000).toLocaleString();
+    }
+    document.getElementById('scheduleMeta').textContent = schMeta;
+
+  } catch (e) { console.error('Status fetch failed:', e); }
+}
+
+// Set both textContent AND data-i18n so future applyI18n() passes stay in sync
+function setText(el, key) {
+  if (!el) return;
+  el.textContent = t(key);
+  el.setAttribute('data-i18n', key);
+}
+
+// Set dynamic (non-keyed) text — clear data-i18n so applyI18n() won't clobber it
+function setDynText(el, text) {
+  if (!el) return;
+  el.textContent = text || '';
+  el.removeAttribute('data-i18n');
+}
+
+function setStatusEl(el, status) {
+  if (!el) return;
+  setText(el, status);
+  el.className = 'status status-' + status;
+}
+
+let confirmModalResolver = null;
+let confirmModalPreviousFocus = null;
+let confirmModalMessageKey = '';
+
+function openConfirmModal(messageKey) {
+  return new Promise(resolve => {
+    const modal = document.getElementById('confirmModal');
+    const message = document.getElementById('confirmModalMessage');
+    if (!modal || !message) {
+      resolve(false);
+      return;
+    }
+    confirmModalResolver = resolve;
+    confirmModalMessageKey = messageKey;
+    confirmModalPreviousFocus = document.activeElement;
+    message.textContent = t(messageKey);
+    modal.removeAttribute('hidden');
+    requestAnimationFrame(() => document.getElementById('confirmModalCancel')?.focus());
+  });
+}
+
+function closeConfirmModal(confirmed) {
+  if (!confirmModalResolver) return;
+  const resolve = confirmModalResolver;
+  const previousFocus = confirmModalPreviousFocus;
+  confirmModalResolver = null;
+  confirmModalPreviousFocus = null;
+  confirmModalMessageKey = '';
+  document.getElementById('confirmModal')?.setAttribute('hidden', '');
+  previousFocus?.focus?.();
+  resolve(!!confirmed);
+}
+
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && confirmModalResolver) {
+    event.preventDefault();
+    closeConfirmModal(false);
+  }
+});
+
+/* ── Conversation discovery / checkbox lists ── */
+
+async function loadSelections() {
+  try {
+    const r = await fetch('/panel/api/conversations/selected');
+    const d = await r.json();
+    selectedMap.scraper = new Set(d.scraper || []);
+    selectedMap.export = new Set(d.export || []);
+    selectedMap.schedule = new Set(d.schedule || []);
+  } catch {}
+}
+
+async function loadDiscoveredConvs() {
+  try {
+    const r = await fetch('/panel/api/conversations/refresh/status');
+    const d = await r.json();
+    discoveredConvs = d.items || [];
+    discoveredAt = d.discovered_at || 0;
+    lastDiscoverStatus = d.status || 'idle';
+    lastDiscoverMsg = d.message || '';
+    renderDiscoverMeta();
+    setStatusEl(document.getElementById('discoverStatus'), lastDiscoverStatus);
+    document.getElementById('refreshConvsBtn').disabled = lastDiscoverStatus === 'running';
+    document.getElementById('stopRefreshBtn').style.display = lastDiscoverStatus === 'running' ? '' : 'none';
+    renderAllConvLists();
+  } catch {}
+}
+
+function renderDiscoverMeta() {
+  const el = document.getElementById('discoverMeta');
+  if (!el) return;
+  const parts = [];
+  if (lastDiscoverMsg) parts.push(lastDiscoverMsg);
+  if (discoveredAt) parts.push(t('discoveredAt', new Date(discoveredAt * 1000).toLocaleString()));
+  el.textContent = parts.join(' · ');
+}
+
+function renderAllConvLists() {
+  ['scrape', 'schedule', 'export'].forEach(prefix => renderConvList(prefix));
+  renderConvCounts();
+}
+
+function sectionKey(prefix) {
+  // UI prefix -> backend section name
+  return prefix === 'scrape' ? 'scraper' : prefix;
+}
+
+function renderConvList(prefix) {
+  const box = document.getElementById(prefix + 'ConvList');
+  if (!box) return;
+  box.innerHTML = '';
+  if (discoveredConvs.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'conv-list-empty';
+    empty.textContent = t('noConvsDiscovered');
+    box.appendChild(empty);
+    return;
+  }
+  const selected = selectedMap[sectionKey(prefix)];
+  for (const conv of discoveredConvs) {
+    const key = conv.nickname || conv.name;
+    if (!key) continue;
+    const label = document.createElement('label');
+    label.className = 'conv-check';
+    label.title = key;
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = key;
+    cb.checked = selected.has(key);
+    cb.onchange = () => onConvToggle(prefix, key, cb.checked);
+    const span = document.createElement('span');
+    span.textContent = key;
+    label.appendChild(cb);
+    label.appendChild(span);
+    box.appendChild(label);
+  }
+}
+
+function renderConvCounts() {
+  ['scrape', 'schedule', 'export'].forEach(prefix => {
+    const el = document.getElementById(prefix + 'ConvCount');
+    if (!el) return;
+    el.textContent = t('convsCount', selectedMap[sectionKey(prefix)].size, discoveredConvs.length);
+  });
+}
+
+let saveTimers = {};
+function onConvToggle(prefix, key, checked) {
+  const section = sectionKey(prefix);
+  const set = selectedMap[section];
+  if (checked) set.add(key); else set.delete(key);
+  renderConvCounts();
+  // Debounced persist
+  clearTimeout(saveTimers[section]);
+  saveTimers[section] = setTimeout(() => persistSelection(section), 400);
+}
+
+async function persistSelection(section) {
+  try {
+    await fetch('/panel/api/conversations/selected', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ section, conversations: [...selectedMap[section]] }),
+    });
+  } catch {}
+}
+
+function selectAllConvs(prefix, checked) {
+  const section = sectionKey(prefix);
+  const set = selectedMap[section];
+  if (checked) {
+    for (const conv of discoveredConvs) {
+      const key = conv.nickname || conv.name;
+      if (key) set.add(key);
+    }
+  } else {
+    set.clear();
+  }
+  renderConvList(prefix);
+  renderConvCounts();
+  persistSelection(section);
+}
+
+async function syncSparkFriends() {
+  // 两个抖音功能共用一套会话设置：直接用火花任务里的好友名单勾选采集会话
+  const msg = document.getElementById('sparkSyncMsg');
+  msg.textContent = '';
+  try {
+    const r = await fetch('/panel/api/spark-friends');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    const names = (d.friends || []).map(f => f.name).filter(Boolean);
+    if (!names.length) {
+      msg.textContent = t('sparkFriendsEmpty');
+      return;
+    }
+    selectedMap.scraper = new Set(names);
+    renderConvList('scrape');
+    renderConvCounts();
+    await persistSelection('scraper');
+    const inList = names.filter(n => discoveredConvs.some(c => (c.nickname || c.name) === n)).length;
+    const scope = t(d.scope === 'friends' ? 'sparkScopeFriends' : 'sparkScopeTasks');
+    msg.textContent = t('sparkFriendsSynced', scope, names.length, inList);
+  } catch (e) {
+    msg.textContent = t('sparkFriendsFailed') + ': ' + (e.message || e);
+  }
+}
+
+function showRefreshError(msg) {
+  const el = document.getElementById('refreshError');
+  if (!el) return;
+  if (msg) {
+    el.textContent = msg;
+    el.style.display = '';
+  } else {
+    el.textContent = '';
+    el.style.display = 'none';
+  }
+}
+
+async function refreshConvs() {
+  showRefreshError('');
+  document.getElementById('refreshConvsBtn').disabled = true;
+  try {
+    const r = await fetch('/panel/api/conversations/refresh', { method: 'POST' });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      showRefreshError(d.error || t('refreshFailed'));
+      document.getElementById('refreshConvsBtn').disabled = false;
+      return;
+    }
+  } catch (e) {
+    showRefreshError(t('refreshFailed') + ': ' + (e.message || e));
+    document.getElementById('refreshConvsBtn').disabled = false;
+    return;
+  }
+  // Poll status + log
+  const poll = async () => {
+    await loadDiscoveredConvs();
+    await loadDiscoverLog();
+    if (lastDiscoverStatus === 'running') {
+      setTimeout(poll, 1500);
+    }
+  };
+  poll();
+}
+
+async function stopRefreshConvs() {
+  await fetch('/panel/api/conversations/refresh/stop', { method: 'POST' });
+  loadDiscoveredConvs();
+  loadDiscoverLog();
+}
+
+async function loadLog() {
+  try {
+    const r = await fetch('/panel/api/scrape/log?lines=80');
+    const d = await r.json();
+    const box = document.getElementById('scrapeLog');
+    // 只有用户本来就贴着底部时才自动跟随，否则轮询会把往上翻的用户拽回底部
+    const stick = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+    box.textContent = d.log || t('noOutput');
+    box.classList.add('show');
+    if (stick) box.scrollTop = box.scrollHeight;
+  } catch {}
+}
+
+async function loadVoiceBackfillLog() {
+  try {
+    const r = await fetch('/panel/api/voice-transcriptions/log?lines=120');
+    const d = await r.json();
+    const box = document.getElementById('voiceBackfillLog');
+    if (!box) return;
+    if (d.log) {
+      const stick = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+      box.textContent = d.log;
+      box.classList.add('show');
+      if (stick) box.scrollTop = box.scrollHeight;
+    } else {
+      box.classList.remove('show');
+    }
+  } catch {}
+}
+
+async function loadDiscoverLog() {
+  try {
+    const r = await fetch('/panel/api/conversations/refresh/log?lines=80');
+    const d = await r.json();
+    const box = document.getElementById('discoverLog');
+    if (!box) return;
+    if (d.log) {
+      const stick = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+      box.textContent = d.log;
+      box.classList.add('show');
+      if (stick) box.scrollTop = box.scrollHeight;
+    } else {
+      box.classList.remove('show');
+    }
+  } catch {}
+}
+
+async function startScrape() {
+  const incremental = document.getElementById('modeIncr').checked;
+  const conversations = [...selectedMap.scraper];
+  if (!incremental && !(await openConfirmModal('confirmFullScrape'))) {
+    return;
+  }
+  document.getElementById('scrapeBtn').disabled = true;
+  await fetch('/panel/api/scrape', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ incremental, conversations }),
+  });
+  loadStatus();
+}
+
+async function startVoiceBackfill() {
+  const conversations = [...selectedMap.scraper];
+  voiceBackfillActive = true;
+  document.getElementById('voiceBackfillBtn').disabled = true;
+  const r = await fetch('/panel/api/voice-transcriptions/backfill', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ conversations }),
+  });
+  if (!r.ok) {
+    const d = await r.json().catch(() => ({}));
+    voiceBackfillActive = false;
+    setStatusEl(document.getElementById('voiceBackfillStatus'), 'failed');
+    setDynText(document.getElementById('voiceBackfillMsg'), d.error || t('error'));
+    document.getElementById('voiceBackfillBtn').disabled = false;
+    return;
+  }
+  loadStatus();
+}
+
+async function stopScrape() {
+  await fetch('/panel/api/scrape/stop', { method: 'POST' });
+  loadStatus();
+}
+
+function setCron(expr) {
+  const parts = expr.split(/\s+/);
+  ['cronMin','cronHour','cronDay','cronMonth','cronDow'].forEach((id, i) => {
+    document.getElementById(id).value = parts[i] || '*';
+  });
+}
+
+async function updateSchedule() {
+  const enabled = document.getElementById('scheduleEnabled').checked;
+  const cron = ['cronMin','cronHour','cronDay','cronMonth','cronDow']
+    .map(id => document.getElementById(id).value.trim() || '*').join(' ');
+  const incremental = document.getElementById('modeIncr').checked;
+  const conversations = [...selectedMap.schedule];
+  const r = await fetch('/panel/api/schedule', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ enabled, cron, incremental, conversations }),
+  });
+  const d = await r.json();
+  if (d.error) {
+    document.getElementById('scheduleMeta').textContent = d.error;
+  }
+  loadStatus();
+}
+
+async function startExport() {
+  const format = document.getElementById('exportFormat').value;
+  const conversations = [...selectedMap.export];
+  if (format !== 'database' && conversations.length > 1 && !confirm(t('confirmMultiExport', conversations.length))) {
+    return;
+  }
+  document.getElementById('exportBtn').disabled = true;
+  setStatusEl(document.getElementById('exportStatus'), 'running');
+  await fetch('/panel/api/export', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ format, conversations }),
+  });
+  loadStatus();
+}
+
+function updateDatabaseFileName(input) {
+  const nameEl = document.getElementById('databaseImportFileName');
+  if (!nameEl) return;
+  const file = input && input.files && input.files[0];
+  nameEl.textContent = file ? file.name : t('databaseNoFile');
+  nameEl.title = file ? file.name : '';
+}
+
+function updateExportMode() {
+  const databaseMode = document.getElementById('exportFormat').value === 'database';
+  const options = document.getElementById('exportConversationOptions');
+  const hint = document.getElementById('databaseExportHint');
+  if (options) options.style.display = databaseMode ? 'none' : '';
+  if (hint) hint.style.display = databaseMode ? '' : 'none';
+}
+
+function updateDatabaseImportModeStyle() {
+  const mode = document.getElementById('databaseImportMode')?.value;
+  const btn = document.getElementById('databaseImportBtn');
+  if (btn) btn.className = 'btn ' + (mode === 'replace' ? 'btn-danger' : 'btn-primary');
+}
+
+async function importDatabase() {
+  const input = document.getElementById('databaseImportFile');
+  const file = input.files && input.files[0];
+  const msg = document.getElementById('databaseImportMsg');
+  if (!file) {
+    setDynText(msg, t('databaseImportEmpty'));
+    return;
+  }
+  const accountSel = document.getElementById('databaseImportAccount');
+  const accountId = accountSel ? accountSel.value : '';
+  const accountName = (accountSel && accountSel.selectedOptions[0])
+    ? accountSel.selectedOptions[0].textContent : accountId;
+  const modeSel = document.getElementById('databaseImportMode');
+  const mode = modeSel ? modeSel.value : 'merge';
+  const confirmMsg = mode === 'replace'
+    ? t('confirmDatabaseImportReplace', accountName)
+    : t('confirmDatabaseImportMerge', accountName);
+  if (!confirm(confirmMsg)) return;
+
+  const btn = document.getElementById('databaseImportBtn');
+  btn.disabled = true;
+  setDynText(msg, t('databaseImportRunning'));
+  try {
+    const url = '/panel/api/database/import?account_id=' + encodeURIComponent(accountId)
+      + '&mode=' + encodeURIComponent(mode);
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/octet-stream'},
+      body: file,
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      setDynText(msg, d.error || t('error'));
+      return;
+    }
+    setDynText(msg, d.message || t('databaseImportSuccess'));
+    input.value = '';
+    updateDatabaseFileName(input);
+    await loadStatus();
+    // 导入到当前账号才需要刷新会话列表；导入其它账号不影响当前视图
+    if (accountId === accountsActiveId) await loadDiscoveredConvs();
+  } catch (e) {
+    setDynText(msg, t('error') + ': ' + (e.message || e));
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* ── Media download ── */
+let backfillPollTimer = null;
+
+async function loadDownloadImages() {
+  try {
+    const r = await fetch('/panel/api/config/download-images');
+    const d = await r.json();
+    document.getElementById('downloadImagesToggle').checked = !!d.enabled;
+  } catch {}
+}
+
+async function toggleDownloadImages() {
+  const enabled = document.getElementById('downloadImagesToggle').checked;
+  await fetch('/panel/api/config/download-images', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+async function startBackfill() {
+  document.getElementById('backfillBtn').disabled = true;
+  setStatusEl(document.getElementById('backfillStatus'), 'running');
+  setDynText(document.getElementById('backfillMsg'), '');
+  await fetch('/panel/api/media/backfill', { method: 'POST' });
+  if (backfillPollTimer) clearInterval(backfillPollTimer);
+  backfillPollTimer = setInterval(pollBackfill, 1500);
+}
+
+async function pollBackfill() {
+  try {
+    const r = await fetch('/panel/api/media/backfill/status');
+    const d = await r.json();
+    const status = d.status || 'idle';
+    setStatusEl(document.getElementById('backfillStatus'), status);
+    if (status === 'running') {
+      setDynText(document.getElementById('backfillMsg'), t('backfillRunning', d.done || 0, d.total || 0));
+    } else if (status === 'completed') {
+      setDynText(document.getElementById('backfillMsg'), t('backfillDone', d.ok || 0, d.failed || 0));
+      document.getElementById('backfillBtn').disabled = false;
+      clearInterval(backfillPollTimer); backfillPollTimer = null;
+    } else if (status === 'failed') {
+      setDynText(document.getElementById('backfillMsg'), d.message || '');
+      document.getElementById('backfillBtn').disabled = false;
+      clearInterval(backfillPollTimer); backfillPollTimer = null;
+    } else {
+      document.getElementById('backfillBtn').disabled = false;
+    }
+  } catch {}
+}
+
+/* ── 视频回填 ── */
+let videoBackfillPollTimer = null;
+
+async function loadVideoPending() {
+  try {
+    const r = await fetch('/panel/api/media/videos/pending');
+    const d = await r.json();
+    setDynText(document.getElementById('videoPendingCount'), t('videoPendingTxt', d.pending || 0));
+  } catch {}
+}
+
+async function startVideoBackfill() {
+  document.getElementById('videoBackfillBtn').disabled = true;
+  setStatusEl(document.getElementById('videoBackfillStatus'), 'running');
+  setDynText(document.getElementById('videoBackfillMsg'), '');
+  await fetch('/panel/api/media/videos/backfill', { method: 'POST' });
+  if (videoBackfillPollTimer) clearInterval(videoBackfillPollTimer);
+  videoBackfillPollTimer = setInterval(pollVideoBackfill, 1500);
+}
+
+async function pollVideoBackfill() {
+  try {
+    const r = await fetch('/panel/api/media/videos/status');
+    const d = await r.json();
+    const status = d.status || 'idle';
+    setStatusEl(document.getElementById('videoBackfillStatus'), status);
+    if (status === 'running') {
+      setDynText(document.getElementById('videoBackfillMsg'),
+        t('videoBackfillRunning', d.ok||0, d.failed||0, d.skipped||0, d.total||0));
+    } else if (status === 'completed') {
+      setDynText(document.getElementById('videoBackfillMsg'),
+        t('videoBackfillDone', d.ok||0, d.failed||0, d.skipped||0));
+      document.getElementById('videoBackfillBtn').disabled = false;
+      clearInterval(videoBackfillPollTimer); videoBackfillPollTimer = null;
+      loadVideoPending();
+    } else if (status === 'failed') {
+      setDynText(document.getElementById('videoBackfillMsg'), d.message || '');
+      document.getElementById('videoBackfillBtn').disabled = false;
+      clearInterval(videoBackfillPollTimer); videoBackfillPollTimer = null;
+    } else {
+      document.getElementById('videoBackfillBtn').disabled = false;
+    }
+  } catch {}
+}
+
+/* ── Password ── */
+async function loadPasswordStatus() {
+  const r = await fetch('/panel/api/password/status');
+  const d = await r.json();
+  setText(document.getElementById('pwStatus'), d.has_password ? 'passwordIsSet' : 'noPasswordSet');
+}
+async function setPassword() {
+  const pw = document.getElementById('pwInput').value;
+  if (!pw) { setText(document.getElementById('pwStatus'), 'passwordEmpty'); return; }
+  const r = await fetch('/panel/api/password', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ password: pw }),
+  });
+  const d = await r.json();
+  setDynText(document.getElementById('pwStatus'), d.message);
+  document.getElementById('pwInput').value = '';
+}
+async function clearPassword() {
+  const r = await fetch('/panel/api/password', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ password: '' }),
+  });
+  const d = await r.json();
+  setDynText(document.getElementById('pwStatus'), d.message);
+}
+
+/* ── Notifications (Server酱) ── */
+async function loadNotifyStatus() {
+  const r = await fetch('/panel/api/notify/serverchan/status');
+  const d = await r.json();
+  setText(document.getElementById('notifyStatus'), d.has_key ? 'notifyKeySet' : 'notifyKeyEmpty');
+}
+async function saveNotifyKey() {
+  const k = document.getElementById('notifyKeyInput').value.trim();
+  if (!k) { setText(document.getElementById('notifyStatus'), 'notifyKeyMissing'); return; }
+  const r = await fetch('/panel/api/notify/serverchan', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ sendkey: k }),
+  });
+  const d = await r.json();
+  setDynText(document.getElementById('notifyStatus'), d.message);
+  document.getElementById('notifyKeyInput').value = '';
+}
+async function clearNotifyKey() {
+  const r = await fetch('/panel/api/notify/serverchan', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ sendkey: '' }),
+  });
+  const d = await r.json();
+  setDynText(document.getElementById('notifyStatus'), d.message);
+}
+async function testNotify() {
+  const r = await fetch('/panel/api/notify/test', { method: 'POST' });
+  const d = await r.json();
+  setDynText(document.getElementById('notifyStatus'), d.message);
+}
+
+/* ── Login ── */
+let loginPollTimer = null;
+
+async function checkLogin() {
+  const ls = document.getElementById('loginStatus');
+  const info = document.getElementById('loginInfo');
+  if (!ls || !info) return; // 账号页已统一到多平台入口，这里不再检测
+  setText(ls, 'checking'); ls.className = 'status status-running';
+  try {
+    const r = await fetch('/panel/api/login/check');
+    const d = await r.json();
+    if (d.status === 'logged_in') {
+      setText(ls, 'completed'); ls.className = 'status status-completed';
+      setText(info, 'loginActive');
+    } else if (d.status === 'expired') {
+      setText(ls, 'failed'); ls.className = 'status status-failed';
+      setText(info, 'loginExpired');
+    } else if (d.status === 'no_profile') {
+      setText(ls, 'failed'); ls.className = 'status status-failed';
+      setText(info, 'loginNoProfile');
+    } else {
+      setDynText(ls, d.status); ls.className = 'status status-idle';
+      setDynText(info, d.message || '');
+    }
+  } catch { setText(ls, 'error'); ls.className = 'status status-failed'; }
+}
+
+async function startLogin() {
+  document.getElementById('loginBtn').disabled = true;
+  document.getElementById('loginCancelBtn').style.display = '';
+  await fetch('/panel/api/login/start', { method: 'POST' });
+  if (loginPollTimer) clearInterval(loginPollTimer);
+  loginPollTimer = setInterval(pollLoginStatus, 1000);
+}
+
+async function cancelLogin() {
+  await fetch('/panel/api/login/cancel', { method: 'POST' });
+  finishLogin();
+}
+
+function finishLogin() {
+  if (loginPollTimer) { clearInterval(loginPollTimer); loginPollTimer = null; }
+  document.getElementById('loginBtn').disabled = false;
+  document.getElementById('loginCancelBtn').style.display = 'none';
+  document.getElementById('loginScreenshot').style.display = 'none';
+}
+
+async function pollLoginStatus() {
+  try {
+    const r = await fetch('/panel/api/login/status');
+    const d = await r.json();
+    const ls = document.getElementById('loginStatus');
+    const info = document.getElementById('loginInfo');
+
+    if (d.status === 'waiting_scan') {
+      setText(ls, 'waitingScan'); ls.className = 'status status-running';
+      setDynText(info, d.message || '');
+      if (d.screenshot) {
+        document.getElementById('loginImg').src = 'data:image/png;base64,' + d.screenshot;
+        document.getElementById('loginScreenshot').style.display = '';
+      }
+    } else if (d.status === 'logged_in') {
+      setText(ls, 'completed'); ls.className = 'status status-completed';
+      setDynText(info, d.message);
+      finishLogin();
+    } else if (d.status === 'failed') {
+      setText(ls, 'failed'); ls.className = 'status status-failed';
+      setDynText(info, d.message);
+      finishLogin();
+    } else if (d.status === 'starting') {
+      setText(ls, 'startingLogin'); ls.className = 'status status-running';
+      setDynText(info, d.message);
+    }
+  } catch {}
+}
+
+/* ── Mouse interaction on screenshot ── */
+let isDragging = false;
+const VIEWPORT_W = 1400, VIEWPORT_H = 900;
+
+function imgCoords(e) {
+  const img = document.getElementById('loginImg');
+  const rect = img.getBoundingClientRect();
+  const scaleX = VIEWPORT_W / rect.width;
+  const scaleY = VIEWPORT_H / rect.height;
+  return {
+    x: Math.round((e.clientX - rect.left) * scaleX),
+    y: Math.round((e.clientY - rect.top) * scaleY),
+  };
+}
+
+function sendMouse(action, x, y) {
+  fetch('/panel/api/login/mouse', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ action, x, y }),
+  });
+}
+
+function imgMouseDown(e) {
+  e.preventDefault();
+  isDragging = true;
+  const {x, y} = imgCoords(e);
+  sendMouse('mousedown', x, y);
+}
+
+function imgMouseMove(e) {
+  if (!isDragging) return;
+  e.preventDefault();
+  const {x, y} = imgCoords(e);
+  sendMouse('mousemove', x, y);
+}
+
+function imgMouseUp(e) {
+  if (!isDragging) {
+    const {x, y} = imgCoords(e);
+    sendMouse('click', x, y);
+  } else {
+    const {x, y} = imgCoords(e);
+    sendMouse('mouseup', x, y);
+  }
+  isDragging = false;
+}
+
+/* ── Keyboard interaction ── */
+function loginKeyDown(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const input = document.getElementById('loginKeyInput');
+    const text = input.value;
+    if (text) {
+      fetch('/panel/api/login/keyboard', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ action: 'type', text }),
+      });
+      input.value = '';
+    } else {
+      sendLoginKey('Enter');
+    }
+  }
+}
+
+function sendLoginKey(key) {
+  fetch('/panel/api/login/keyboard', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ action: 'press', key }),
+  });
+}
+
+async function clearLogin() {
+  if (!confirm(t('deleteAccountConfirm', (accountsCache.find(m => m.id === accountsActiveId) || {}).name || ''))) return;
+  const r = await fetch('/panel/api/login/clear', { method: 'POST' });
+  const d = await r.json().catch(() => ({}));
+  accountsActiveId = d.active || null;
+  await loadAccounts();
+  const ls = document.getElementById('loginStatus');
+  setText(ls, 'idle'); ls.className = 'status status-idle';
+  setText(document.getElementById('loginInfo'), 'accountDeleted');
+}
+
+/* ── Accounts (multi-account cookie manager) ── */
+let accountsCache = [];
+let accountsActiveId = null;
+let accountsEnv = { browser_login_supported: true, docker: false };
+let browserLoginPollTimer = null;
+let accountRefreshingId = null;
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function acctAvaHtml(meta, size) {
+  const cls = 'ava-' + size;
+  if (meta && meta.avatar_url) {
+    return '<img class="acct-ava ' + cls + '" src="' + escapeHtml(meta.avatar_url) + '" alt="" referrerpolicy="no-referrer">';
+  }
+  const ch = ((meta && meta.name) || '?').trim().charAt(0) || '?';
+  return '<span class="acct-ava-fallback ' + cls + '">' + escapeHtml(ch) + '</span>';
+}
+
+async function loadAccounts() {
+  try {
+    const r = await fetch('/panel/api/accounts');
+    const d = await r.json();
+    accountsCache = d.accounts || [];
+    accountsActiveId = d.active || null;
+    accountsEnv = {
+      browser_login_supported: d.browser_login_supported !== false,
+      docker: !!d.docker,
+    };
+  } catch (e) {
+    accountsCache = []; accountsActiveId = null;
+  }
+  const blb = document.getElementById('browserLoginBtn');
+  if (blb) blb.style.display = accountsEnv.browser_login_supported ? '' : 'none';
+  renderAccountSwitcher();
+  renderAccountList();
+  renderDatabaseImportAccounts();
+}
+
+function renderDatabaseImportAccounts() {
+  // 导入目标账号：默认当前账号，可在下拉里换成其它账号
+  const sel = document.getElementById('databaseImportAccount');
+  if (!sel) return;
+  const prev = sel.value;
+  sel.innerHTML = '';
+  for (const m of accountsCache) {
+    const opt = document.createElement('option');
+    opt.value = m.id;
+    opt.textContent = m.name || m.id;
+    sel.appendChild(opt);
+  }
+  const prefer = accountsCache.some(m => m.id === prev) ? prev : accountsActiveId;
+  if (prefer) sel.value = prefer;
+}
+
+function renderAccountSwitcher() {
+  const nameEl = document.getElementById('acctChipName');
+  const avaEl = document.getElementById('acctChipAva');
+  const menu = document.getElementById('acctMenu');
+  if (!nameEl || !avaEl || !menu) return;
+  const active = accountsCache.find(m => m.id === accountsActiveId);
+  nameEl.textContent = active ? (active.name || t('noAccounts')) : t('noAccounts');
+  avaEl.innerHTML = acctAvaHtml(active, 26);
+  let html = '';
+  for (const m of accountsCache) {
+    html += '<button class="acct-menu-item" type="button" role="menuitem" onclick="switchAccount(\'' + m.id + '\')">' +
+      '<span class="tick">' + (m.id === accountsActiveId ? '✓' : '') + '</span>' +
+      acctAvaHtml(m, 22) +
+      '<span class="mi-label">' + escapeHtml(m.name || '') + '</span></button>';
+  }
+  if (accountsCache.length) html += '<div class="acct-menu-sep"></div>';
+  html += '<button class="acct-menu-item" type="button" role="menuitem" onclick="acctMenuAdd()">' +
+    '<span class="tick">＋</span><span class="mi-label">' + t('addAccount') + '</span></button>';
+  html += '<button class="acct-menu-item" type="button" role="menuitem" onclick="acctMenuManage()">' +
+    '<span class="tick">⚙</span><span class="mi-label">' + t('manageAccounts') + '</span></button>';
+  menu.innerHTML = html;
+}
+
+function toggleAcctMenu(e) {
+  e.stopPropagation();
+  document.getElementById('acctMenu').classList.toggle('show');
+}
+document.addEventListener('click', e => {
+  const menu = document.getElementById('acctMenu');
+  if (menu && menu.classList.contains('show') && !e.target.closest('#acctSwitch')) {
+    menu.classList.remove('show');
+  }
+});
+
+function acctMenuAdd() {
+  document.getElementById('acctMenu').classList.remove('show');
+  showPage('login');
+  setTimeout(startBrowserLogin, 60);
+}
+function acctMenuManage() {
+  document.getElementById('acctMenu').classList.remove('show');
+  showPage('login');
+}
+
+function accountStatusTag(m) {
+  const s = m.status || 'unknown';
+  if (s === 'logged_in') return '<span class="tag tag-ok">' + t('accountStatusLoggedIn') + '</span>';
+  if (s === 'expired') return '<span class="tag tag-err">' + t('accountStatusExpired') + '</span>';
+  if (s === 'no_profile') return '<span class="tag tag-warn">' + t('accountStatusNoProfile') + '</span>';
+  return '<span class="tag">' + t('accountStatusUnknown') + '</span>';
+}
+
+function renderAccountList() {
+  const box = document.getElementById('accountList');
+  const empty = document.getElementById('accountsEmpty');
+  const count = document.getElementById('accountsCount');
+  if (!box) return;
+  if (count) count.textContent = String(accountsCache.length);
+  if (!accountsCache.length) {
+    box.innerHTML = '';
+    if (empty) empty.style.display = '';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+  box.innerHTML = accountsCache.map(m => {
+    const isActive = m.id === accountsActiveId;
+    const sub = [
+      m.uid ? t('uidLabel', m.uid) : '',
+      m.last_used_at ? t('lastUsed', new Date(m.last_used_at * 1000).toLocaleString()) : t('neverUsed'),
+    ].filter(Boolean).join(' · ');
+    return '<div class="acct-row' + (isActive ? ' active' : '') + '">' +
+      acctAvaHtml(m, 40) +
+      '<div class="acct-info"><div class="acct-title">' + escapeHtml(m.name || '') + ' ' +
+        (isActive ? '<span class="tag tag-active">' + t('activeTag') + '</span>' : '') +
+        accountStatusTag(m) + '</div>' +
+      '<div class="acct-sub">' + escapeHtml(sub) + '</div></div>' +
+      '<div class="acct-actions">' +
+        (isActive ? '' : '<button class="btn btn-outline btn-sm" onclick="switchAccount(\'' + m.id + '\')">' + t('switchTo') + '</button>') +
+        '<button class="btn btn-outline btn-sm" onclick="refreshAccount(\'' + m.id + '\')"' + (accountRefreshingId === m.id ? ' disabled' : '') + '>' + t('refreshAccount') + '</button>' +
+        '<button class="btn btn-outline btn-sm" style="color:var(--red)" onclick="deleteAccount(\'' + m.id + '\')">' + t('deleteAccount') + '</button>' +
+      '</div></div>';
+  }).join('');
+}
+
+async function switchAccount(id) {
+  document.getElementById('acctMenu').classList.remove('show');
+  if (id === accountsActiveId) return;
+  let d = {};
+  try {
+    const r = await fetch('/panel/api/accounts/switch', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({id}),
+    });
+    d = await r.json().catch(() => ({}));
+    if (!r.ok) { alert(d.error || t('switchFailed')); return; }
+  } catch (e) { alert(t('switchFailed') + ': ' + e.message); return; }
+  accountsActiveId = id;
+  await loadAccounts();
+  checkLogin();
+}
+
+async function deleteAccount(id) {
+  const m = accountsCache.find(x => x.id === id);
+  if (!m) return;
+  if (!confirm(t('deleteAccountConfirm', m.name || ''))) return;
+  let d = {};
+  try {
+    const r = await fetch('/panel/api/accounts/' + encodeURIComponent(id) + '/delete', {method: 'POST'});
+    d = await r.json().catch(() => ({}));
+    if (!r.ok) { alert(d.error || t('deleteFailed')); return; }
+  } catch (e) { alert(t('deleteFailed') + ': ' + e.message); return; }
+  accountsActiveId = d.active || null;
+  await loadAccounts();
+  checkLogin();
+}
+
+async function refreshAccount(id) {
+  accountRefreshingId = id;
+  renderAccountList();
+  try {
+    const r = await fetch('/panel/api/accounts/' + encodeURIComponent(id) + '/refresh', {method: 'POST'});
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { alert(d.error || t('refreshFailed')); return; }
+  } catch (e) {
+    alert(t('refreshFailed') + ': ' + e.message);
+  } finally {
+    accountRefreshingId = null;
+  }
+  await loadAccounts();
+}
+
+/* ── Browser-popup login ── */
+function startBrowserLogin() {
+  const btn = document.getElementById('browserLoginBtn');
+  const st = document.getElementById('browserLoginStatus');
+  const cancelRow = document.getElementById('browserLoginCancelRow');
+  if (btn) btn.disabled = true;
+  if (st) { st.style.display = ''; st.textContent = t('browserLoginStarting'); }
+  if (cancelRow) cancelRow.style.display = '';
+  fetch('/panel/api/accounts/browser-login/start', {method: 'POST'})
+    .then(async r => {
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        if (st) st.textContent = d.error || t('browserLoginFailed');
+        if (btn) btn.disabled = false;
+        if (cancelRow) cancelRow.style.display = 'none';
+        return;
+      }
+      if (browserLoginPollTimer) clearInterval(browserLoginPollTimer);
+      browserLoginPollTimer = setInterval(pollBrowserLogin, 1000);
+    })
+    .catch(e => {
+      if (st) st.textContent = t('browserLoginFailed') + ': ' + e.message;
+      if (btn) btn.disabled = false;
+      if (cancelRow) cancelRow.style.display = 'none';
+    });
+}
+
+async function pollBrowserLogin() {
+  let d = {};
+  try {
+    const r = await fetch('/panel/api/accounts/browser-login/status');
+    d = await r.json();
+  } catch (e) { return; }
+  const st = document.getElementById('browserLoginStatus');
+  const btn = document.getElementById('browserLoginBtn');
+  const cancelRow = document.getElementById('browserLoginCancelRow');
+  if (d.status === 'waiting_scan' && st) st.textContent = t('browserLoginWaiting');
+  else if (d.status === 'starting' && st) st.textContent = t('browserLoginStarting');
+  else if (d.status === 'finalizing' && st) st.textContent = t('browserLoginFinalizing');
+  else if (d.status === 'done') {
+    if (browserLoginPollTimer) { clearInterval(browserLoginPollTimer); browserLoginPollTimer = null; }
+    if (st) st.textContent = t('accountAdded', (d.account && d.account.name) || '');
+    if (btn) btn.disabled = false;
+    if (cancelRow) cancelRow.style.display = 'none';
+    await loadAccounts();
+    checkLogin();
+    setTimeout(() => { if (st) st.style.display = 'none'; }, 4000);
+  } else if (d.status === 'failed' || d.status === 'cancelled') {
+    if (browserLoginPollTimer) { clearInterval(browserLoginPollTimer); browserLoginPollTimer = null; }
+    if (st) st.textContent = d.status === 'cancelled' ? t('cancel') + ' — ' + t('browserLoginFailed') : (d.message || t('browserLoginFailed'));
+    if (btn) btn.disabled = false;
+    if (cancelRow) cancelRow.style.display = 'none';
+  }
+}
+
+async function cancelBrowserLogin() {
+  try { await fetch('/panel/api/accounts/browser-login/cancel', {method: 'POST'}); } catch (e) {}
+}
+
+/* ── Cookie Import ── */
+function toggleCookieImport() {
+  const area = document.getElementById('cookieImportArea');
+  const show = !area.classList.contains('show');
+  area.classList.toggle('show', show);
+  if (show) {
+    document.getElementById('cookieImportHint').innerHTML = t('cookieHintHtml');
+    document.getElementById('cookieImportFeedback').textContent = '';
+    document.getElementById('cookieInput').value = '';
+  }
+}
+
+async function importCookie() {
+  const input = document.getElementById('cookieInput').value.trim();
+  if (!input) return;
+  const fb = document.getElementById('cookieImportFeedback');
+  const btn = document.getElementById('cookieImportBtn');
+  btn.disabled = true;
+  fb.className = 'cookie-import-feedback';
+  fb.textContent = '...';
+  try {
+    const r = await fetch('/panel/api/login/cookie-import', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ cookies: input }),
+    });
+    const d = await r.json();
+    if (r.ok) {
+      fb.className = 'cookie-import-feedback success';
+      fb.textContent = d.message || t('cookieImportSuccess', d.count || 0);
+      setTimeout(() => { loadAccounts(); checkLogin(); toggleCookieImport(); }, 1500);
+    } else {
+      fb.className = 'cookie-import-feedback error';
+      fb.textContent = d.error || t('cookieImportFailed');
+    }
+  } catch (e) {
+    fb.className = 'cookie-import-feedback error';
+    fb.textContent = t('cookieImportFailed') + ': ' + e.message;
+  } finally { btn.disabled = false; }
+}
+
+/* ── Panel Auth ── */
+let panelToken = localStorage.getItem('panel_token') || '';
+
+function setCookie(name, val, days) {
+  const d = new Date(); d.setTime(d.getTime() + days*86400000);
+  document.cookie = name + '=' + val + ';expires=' + d.toUTCString() + ';path=/';
+}
+
+async function panelAuthCheck() {
+  try {
+    const r = await fetch('/api/auth/check', {
+      headers: panelToken ? {'Authorization': 'Bearer ' + panelToken} : {}
+    });
+    const d = await r.json();
+    if (!d.need_password || d.authenticated) {
+      // Authenticated or no password set
+      setCookie('auth_token', panelToken, 7);
+      document.getElementById('loginOverlay').style.display = 'none';
+      document.getElementById('mainContainer').style.display = '';
+      loadAccounts();
+      checkLogin();
+      // Load selections + discovered conv list before loadStatus so checkboxes
+      // can render with correct prior state.
+      await loadSelections();
+      await loadDiscoveredConvs();
+      loadDiscoverLog();
+      loadStatus();
+      loadPasswordStatus();
+      loadNotifyStatus();
+      loadDownloadImages();
+      pollBackfill();
+      loadVideoPending();
+      pollVideoBackfill();
+      setInterval(loadStatus, 5000);
+    } else {
+      document.getElementById('loginOverlay').style.display = 'flex';
+      document.getElementById('mainContainer').style.display = 'none';
+    }
+  } catch(e) {
+    document.getElementById('loginOverlay').style.display = 'flex';
+  }
+}
+
+async function panelLogin() {
+  const pw = document.getElementById('panelPwInput').value;
+  if (!pw) return;
+  try {
+    const r = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({password: pw})
+    });
+    const d = await r.json();
+    if (d.token) {
+      panelToken = d.token;
+      localStorage.setItem('panel_token', panelToken);
+      setCookie('auth_token', panelToken, 7);
+      document.getElementById('panelLoginErr').textContent = '';
+      panelAuthCheck();
+    } else {
+      document.getElementById('panelLoginErr').textContent = t('wrongPassword');
+    }
+  } catch(e) {
+    document.getElementById('panelLoginErr').textContent = t('loginFailed');
+  }
+}
+
+// Inject token cookie on every fetch for panel API calls
+const _origFetch = window.fetch;
+window.fetch = function(url, opts) {
+  if (panelToken && typeof url === 'string' && url.startsWith('/panel/')) {
+    opts = opts || {};
+    opts.headers = opts.headers || {};
+    if (opts.headers instanceof Headers) {
+      if (!opts.headers.has('Authorization')) opts.headers.set('Authorization', 'Bearer ' + panelToken);
+    } else {
+      if (!opts.headers['Authorization']) opts.headers['Authorization'] = 'Bearer ' + panelToken;
+    }
+  }
+  return _origFetch.call(this, url, opts);
+};
+
+applyI18n();
+updateDatabaseFileName(document.getElementById('databaseImportFile'));
+updateExportMode();
+showPage(localStorage.getItem('panel-page') || 'overview');
+panelAuthCheck();
+</script>
+<script src="/back.js" defer></script>
+</body>
+</html>

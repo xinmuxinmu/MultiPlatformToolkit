@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>抖音 · 聊天记录与火花</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    display:flex;flex-direction:column;overflow:hidden;background:#f4f6fa;color:#1f2937;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;
+  }
+  .topbar{
+    height:56px;flex:none;display:flex;align-items:center;gap:12px;padding:0 14px;
+    background:#fff;border-bottom:1px solid #e6e9f2;box-shadow:0 1px 2px rgba(16,24,40,.03);
+    z-index:10;position:relative;
+  }
+  .back{
+    width:32px;height:32px;border-radius:9px;display:grid;place-items:center;
+    color:#475569;text-decoration:none;font-size:20px;line-height:1;flex:none;
+    border:1px solid transparent;transition:.15s;
+  }
+  .back:hover{background:#f1f5f9;border-color:#e2e8f0;color:#2563eb}
+  .brand{font-size:16px;font-weight:700;letter-spacing:-.2px;flex:none}
+  .brand small{font-weight:500;font-size:11px;color:#94a3b8;margin-left:6px}
+  .tabs{display:flex;gap:3px;background:#f1f3f9;padding:3px;border-radius:10px;flex:none}
+  .tab{
+    border:0;background:transparent;color:#64748b;font:600 13px/1 inherit;
+    padding:8px 15px;border-radius:8px;cursor:pointer;transition:.15s;
+  }
+  .tab:hover{color:#334155}
+  .tab.active{background:#fff;color:#1d4ed8;box-shadow:0 1px 4px rgba(16,24,40,.12)}
+  .spacer{flex:1;min-width:8px}
+  .status{font-size:12px;color:#94a3b8;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .acct{position:relative;flex:none}
+  .chip{
+    display:flex;align-items:center;gap:8px;max-width:200px;padding:5px 11px 5px 5px;
+    border-radius:999px;border:1px solid #e2e8f0;background:#fff;cursor:pointer;
+    font:600 12.5px/1 inherit;color:#334155;transition:.15s;
+  }
+  .chip:hover{border-color:#93b4f8}
+  .chip .ava,.chip img.ava{width:26px;height:26px;border-radius:50%;flex:none}
+  .chip img.ava{object-fit:cover;background:#f1f5f9}
+  .chip .ava.fb{display:grid;place-items:center;background:#e0edff;color:#2563eb;font-size:12px;font-weight:700}
+  .chip .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .chip .caret{font-size:9px;color:#94a3b8}
+  .menu{
+    display:none;position:absolute;right:0;top:calc(100% + 8px);min-width:250px;max-width:330px;
+    background:#fff;border:1px solid #e2e8f0;border-radius:12px;
+    box-shadow:0 12px 32px rgba(15,23,42,.16);padding:6px;z-index:50;
+  }
+  .menu.open{display:block}
+  .menu-head{padding:7px 10px 5px;font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:.4px}
+  .menu-item{
+    display:flex;align-items:center;gap:9px;width:100%;padding:8px 10px;border:0;border-radius:9px;
+    background:transparent;color:#334155;font:500 13px/1.2 inherit;text-align:left;cursor:pointer;
+  }
+  .menu-item:hover{background:#f1f6ff}
+  .menu-item .tick{width:14px;color:#2563eb;font-size:12px;flex:none;text-align:center}
+  .menu-item .ava,.menu-item img.ava{width:24px;height:24px;border-radius:50%;flex:none}
+  .menu-item img.ava{object-fit:cover;background:#f1f5f9}
+  .menu-item .ava.fb{display:grid;place-items:center;background:#e0edff;color:#2563eb;font-size:11px;font-weight:700}
+  .menu-item .meta{flex:1;min-width:0}
+  .menu-item .meta b{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .menu-item .meta span{display:block;font-size:11px;color:#94a3b8;margin-top:2px}
+  .menu-sep{height:1px;background:#eef1f6;margin:6px 6px}
+  .menu-note{padding:8px 10px;font-size:12px;color:#94a3b8}
+  .login-btn{
+    flex:none;border:0;border-radius:9px;padding:9px 14px;cursor:pointer;
+    background:#2563eb;color:#fff;font:600 12.5px/1 inherit;box-shadow:0 2px 8px rgba(37,99,235,.22);
+  }
+  .login-btn:hover:not(:disabled){background:#1d4ed8}
+  .login-btn.cancel{background:#fff;color:#dc2626;border:1px solid #fecaca;box-shadow:none}
+  .login-btn:disabled{opacity:.55;cursor:default}
+  .manage{
+    flex:none;font-size:12.5px;font-weight:600;color:#64748b;text-decoration:none;
+    padding:8px 10px;border-radius:8px;border:0;background:transparent;cursor:pointer;
+  }
+  .manage:hover{background:#f1f5f9;color:#2563eb}
+  .frames{flex:1;position:relative;min-height:0;background:#fff}
+  .frames iframe{
+    position:absolute;inset:0;width:100%;height:100%;border:0;background:#fff;display:none;
+  }
+  .frames iframe.active{display:block}
+  .toast{
+    position:fixed;left:50%;bottom:22px;transform:translate(-50%,12px);opacity:0;
+    background:#0f172a;color:#fff;padding:10px 18px;border-radius:10px;font-size:13px;font-weight:600;
+    box-shadow:0 10px 26px rgba(15,23,42,.28);z-index:99;pointer-events:none;
+    transition:.2s;max-width:80vw;
+  }
+  .toast.show{opacity:1;transform:translate(-50%,0)}
+  .toast.err{background:#dc2626}
+  .toast.ok{background:#16a34a}
+  @media (max-width:760px){
+    .brand small,.manage,.status{display:none}
+    .chip .nm{max-width:88px}
+    .tabs{padding:2px}
+    .tab{padding:7px 8px;font-size:12px}
+    .login-btn{padding:8px 10px;font-size:12px}
+  }
+
+  /* ── 统一账号中心（弹层） ── */
+  .acct-modal{
+    position:fixed;inset:0;background:rgba(15,23,42,.45);display:none;
+    align-items:center;justify-content:center;padding:20px;z-index:200;
+  }
+  .acct-modal.open{display:flex}
+  .acct-dialog{
+    width:min(640px,100%);max-height:min(720px,86vh);display:flex;flex-direction:column;
+    background:#fff;border-radius:16px;box-shadow:0 24px 60px rgba(15,23,42,.28);overflow:hidden;
+  }
+  .acct-head{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:16px 18px;border-bottom:1px solid #eef1f6;
+  }
+  .acct-head b{font-size:15px}
+  .acct-head .sub{font-size:12px;color:#94a3b8;margin-top:3px;font-weight:400}
+  .acct-x{
+    width:30px;height:30px;border:0;background:transparent;border-radius:8px;cursor:pointer;
+    color:#94a3b8;font-size:18px;line-height:1;
+  }
+  .acct-x:hover{background:#f1f5f9;color:#334155}
+  .acct-body{padding:10px 14px;overflow:auto;flex:1}
+  .acct-row{
+    display:flex;align-items:center;gap:12px;padding:12px;border-radius:12px;
+    border:1px solid #eef1f6;margin-bottom:9px;background:#fff;
+  }
+  .acct-row.current{border-color:#bfd3f9;background:#f8fbff}
+  .acct-row .ava,.acct-row img.ava{width:38px;height:38px;border-radius:50%;flex:none}
+  .acct-row img.ava{object-fit:cover;background:#f1f5f9}
+  .acct-row .ava.fb{display:grid;place-items:center;background:#e0edff;color:#2563eb;font-weight:700}
+  .acct-row .info{flex:1;min-width:0}
+  .acct-row .nm{font-weight:600;font-size:13.5px;display:flex;align-items:center;gap:7px}
+  .acct-row .nm .tag{font-size:10px;font-weight:700;color:#16a34a;background:#e8f9ef;border-radius:20px;padding:1px 7px}
+  .acct-row .uid{font-size:11.5px;color:#94a3b8;margin-top:3px;word-break:break-all}
+  .acct-row .ops{display:flex;gap:6px;flex:none;flex-wrap:wrap;justify-content:flex-end}
+  .acct-row .ops button{
+    font:600 12px/1 inherit;padding:6px 10px;border-radius:8px;cursor:pointer;
+    border:1px solid #e2e8f0;background:#fff;color:#475569;
+  }
+  .acct-row .ops button:hover{border-color:#93b4f8;color:#1d4ed8}
+  .acct-row .ops button.danger{color:#dc2626;border-color:#fecaca}
+  .acct-row .ops button.danger:hover{background:#fef2f2;border-color:#fca5a5;color:#b91c1c}
+  .acct-row .ops button:disabled{opacity:.45;cursor:default}
+  .acct-empty{padding:26px 10px;text-align:center;color:#94a3b8;font-size:13px}
+  .acct-foot{
+    display:flex;align-items:center;gap:9px;flex-wrap:wrap;
+    padding:13px 16px;border-top:1px solid #eef1f6;background:#fafbfe;
+  }
+  .acct-foot .spacer{flex:1}
+  .acct-foot button{
+    font:600 12.5px/1 inherit;padding:9px 14px;border-radius:9px;cursor:pointer;
+    border:1px solid #e2e8f0;background:#fff;color:#475569;
+  }
+  .acct-foot button:hover{border-color:#93b4f8;color:#1d4ed8}
+  .acct-foot button.primary{background:#2563eb;border-color:#2563eb;color:#fff}
+  .acct-foot button.primary:hover{background:#1d4ed8;color:#fff}
+  .acct-foot .note{font-size:11.5px;color:#94a3b8}
+  @media (max-width:640px){
+    .acct-row{flex-wrap:wrap}
+    .acct-row .ops{width:100%;justify-content:flex-start}
+  }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="back" href="/" title="返回多平台工具首页" aria-label="返回多平台工具首页">←</a>
+    <div class="brand">抖音<small>聊天记录 · 火花</small></div>
+    <nav class="tabs" role="tablist">
+      <button class="tab active" id="tab-chat" data-tab="chat" role="tab" aria-selected="true">聊天记录</button>
+      <button class="tab" id="tab-console" data-tab="console" role="tab" aria-selected="false">导出控制台</button>
+      <button class="tab" id="tab-spark" data-tab="spark" role="tab" aria-selected="false">火花助手</button>
+    </nav>
+    <div class="spacer"></div>
+    <span class="status" id="status"></span>
+    <div class="acct" id="acct">
+      <button class="chip" id="acctChip" type="button" title="切换抖音账号">
+        <span class="ava fb">?</span><span class="nm">加载中</span><span class="caret">▾</span>
+      </button>
+      <div class="menu" id="acctMenu"></div>
+    </div>
+    <button class="login-btn" id="loginBtn" type="button">登录 / 添加账号</button>
+    <button class="manage" id="manageBtn" type="button">账号管理</button>
+  </header>
+
+  <div class="frames">
+    <iframe id="frame-chat" class="active" src="/douyin-chat/?embed=1" title="抖音聊天记录"></iframe>
+    <iframe id="frame-console" src="/douyin-chat/panel?embed=1" title="抖音导出控制台"></iframe>
+    <iframe id="frame-spark" src="/spark/?embed=1" title="抖音火花助手"></iframe>
+  </div>
+
+  <!-- 统一账号中心：账号只在这里管理，聊天导出/火花内不再各放一套 -->
+  <div class="acct-modal" id="acctModal" role="dialog" aria-modal="true" aria-labelledby="acctModalTitle">
+    <div class="acct-dialog">
+      <div class="acct-head">
+        <div>
+          <b id="acctModalTitle">账号管理</b>
+          <div class="sub">登录态（Cookie）、聊天记录、火花任务都按账号隔离，切换后两个页面一起生效。</div>
+        </div>
+        <button class="acct-x" id="acctClose" type="button" title="关闭">×</button>
+      </div>
+      <div class="acct-body" id="acctList"></div>
+      <div class="acct-foot">
+        <button class="primary" id="acctAdd" type="button">登录 / 添加账号</button>
+        <button id="acctReload" type="button">刷新列表</button>
+        <span class="spacer"></span>
+        <span class="note">账号数据保存在本机</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var PANEL = '/douyin-chat/panel/api';
+  var accounts = [];
+  var activeId = null;
+  var menuOpen = false;
+  var busy = false;
+  var loginPolling = false;
+  var currentTab = 'chat';
+
+  var els = {
+    chip: document.getElementById('acctChip'),
+    menu: document.getElementById('acctMenu'),
+    acct: document.getElementById('acct'),
+    login: document.getElementById('loginBtn'),
+    manage: document.getElementById('manageBtn'),
+    status: document.getElementById('status'),
+    toast: document.getElementById('toast'),
+    modal: document.getElementById('acctModal'),
+    modalList: document.getElementById('acctList'),
+    modalClose: document.getElementById('acctClose'),
+    modalAdd: document.getElementById('acctAdd'),
+    modalReload: document.getElementById('acctReload'),
+    tabs: {
+      chat: document.getElementById('tab-chat'),
+      console: document.getElementById('tab-console'),
+      spark: document.getElementById('tab-spark')
+    },
+    frames: {
+      chat: document.getElementById('frame-chat'),
+      console: document.getElementById('frame-console'),
+      spark: document.getElementById('frame-spark')
+    }
+  };
+
+  function esc(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function authHeaders(extra) {
+    var headers = extra || {};
+    var token = localStorage.getItem('authToken');
+    if (token) headers.Authorization = 'Bearer ' + token;
+    return headers;
+  }
+
+  async function api(path, opts) {
+    opts = opts || {};
+    opts.headers = authHeaders(opts.headers);
+    var res = await fetch(PANEL + path, opts);
+    var data = {};
+    try { data = await res.json(); } catch (e) { data = {}; }
+    if (!res.ok) throw new Error(data.error || ('请求失败 (HTTP ' + res.status + ')'));
+    return data;
+  }
+
+  function toast(message, kind) {
+    els.toast.textContent = message;
+    els.toast.className = 'toast show' + (kind ? ' ' + kind : '');
+    clearTimeout(toast._timer);
+    toast._timer = setTimeout(function () { els.toast.className = 'toast'; }, 3200);
+  }
+
+  function setStatus(text) { els.status.textContent = text || ''; }
+
+  function avatarHtml(account, cls) {
+    if (account && account.avatar_url) {
+      return '<img class="' + cls + '" src="' + esc(account.avatar_url) + '" alt="" ' +
+        'referrerpolicy="no-referrer" onerror="this.style.display=\'none\'">';
+    }
+    var ch = String((account && (account.name || account.uid)) || '?').trim().charAt(0) || '?';
+    return '<span class="' + cls + ' fb">' + esc(ch) + '</span>';
+  }
+
+  function activeAccount() {
+    for (var i = 0; i < accounts.length; i++) if (accounts[i].id === activeId) return accounts[i];
+    return accounts[0] || null;
+  }
+
+  function renderChip() {
+    var a = activeAccount();
+    if (!a) {
+      els.chip.innerHTML = '<span class="ava fb">?</span><span class="nm">未登录</span><span class="caret">▾</span>';
+      return;
+    }
+    els.chip.innerHTML = avatarHtml(a, 'ava') +
+      '<span class="nm">' + esc(a.name || a.uid || '账号') + '</span><span class="caret">▾</span>';
+  }
+
+  function renderMenu() {
+    if (!accounts.length) {
+      els.menu.innerHTML = '<div class="menu-note">还没有账号，点击右上角「登录 / 添加账号」扫码登录。</div>';
+      return;
+    }
+    var html = '<div class="menu-head">切换抖音账号</div>';
+    accounts.forEach(function (a) {
+      var current = a.id === activeId;
+      html += '<button class="menu-item" type="button" data-switch="' + esc(a.id) + '">' +
+        '<span class="tick">' + (current ? '✓' : '') + '</span>' +
+        avatarHtml(a, 'ava') +
+        '<span class="meta"><b>' + esc(a.name || a.uid || '账号') + '</b>' +
+        '<span>' + esc(a.uid ? '抖音号 ' + a.uid : (current ? '当前账号' : '')) + '</span></span>' +
+        (current ? '<span style="font-size:11px;color:#16a34a;font-weight:700">当前</span>' : '') +
+        '</button>';
+    });
+    html += '<div class="menu-sep"></div>' +
+      '<button class="menu-item" type="button" data-open-accounts><span class="tick">⚙</span><span>账号管理</span></button>';
+    els.menu.innerHTML = html;
+  }
+
+  function renderAcctCenter() {
+    if (!els.modalList) return;
+    if (!accounts.length) {
+      els.modalList.innerHTML = '<div class="acct-empty">还没有账号。点下方「登录 / 添加账号」扫码添加。</div>';
+      return;
+    }
+    els.modalList.innerHTML = accounts.map(function (a) {
+      var current = a.id === activeId;
+      var name = esc(a.name || a.uid || '账号');
+      return '<div class="acct-row' + (current ? ' current' : '') + '">' +
+        avatarHtml(a, 'ava') +
+        '<div class="info"><div class="nm">' + name +
+        (current ? '<span class="tag">当前</span>' : '') + '</div>' +
+        '<div class="uid">' + esc(a.uid ? '抖音号 ' + a.uid : '未读取到抖音号') + '</div></div>' +
+        '<div class="ops">' +
+        '<button type="button" data-act="switch" data-id="' + esc(a.id) + '"' +
+        (current ? ' disabled' : '') + '>切换</button>' +
+        '<button type="button" data-act="rename" data-id="' + esc(a.id) + '">重命名</button>' +
+        '<button type="button" class="danger" data-act="delete" data-id="' + esc(a.id) + '">删除</button>' +
+        '</div></div>';
+    }).join('');
+  }
+
+  function openAcctCenter() {
+    closeMenu();
+    renderAcctCenter();
+    els.modal.classList.add('open');
+    loadAccounts();
+  }
+
+  function closeAcctCenter() {
+    els.modal.classList.remove('open');
+    if (location.hash === '#accounts') {
+      history.replaceState(null, '', '#' + (currentTab || 'chat'));
+    }
+  }
+
+  els.manage.addEventListener('click', openAcctCenter);
+  els.modalClose.addEventListener('click', closeAcctCenter);
+  els.modal.addEventListener('click', function (e) {
+    if (e.target === els.modal) closeAcctCenter();
+  });
+  els.modalReload.addEventListener('click', function () { loadAccounts(); });
+  els.modalAdd.addEventListener('click', function () {
+    closeAcctCenter();
+    els.login.click();
+  });
+
+  els.modalList.addEventListener('click', async function (e) {
+    var btn = e.target.closest('[data-act]');
+    if (!btn) return;
+    var accountId = btn.getAttribute('data-id');
+    var account = accounts.find(function (a) { return a.id === accountId; });
+    if (!account) return;
+    var act = btn.getAttribute('data-act');
+
+    if (act === 'switch') {
+      closeAcctCenter();
+      switchAccount(accountId);
+      return;
+    }
+    if (act === 'rename') {
+      var next = prompt('新的账号备注名（只改显示名，不影响登录态）', account.name || '');
+      if (next === null) return;
+      next = next.trim();
+      if (!next || next === account.name) return;
+      btn.disabled = true;
+      try {
+        await api('/accounts/' + encodeURIComponent(accountId) + '/rename', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: next })
+        });
+        toast('已重命名', 'ok');
+        await loadAccounts();
+      } catch (err) {
+        toast(err.message, 'err');
+        btn.disabled = false;
+      }
+      return;
+    }
+    if (act === 'delete') {
+      if (!confirm('确定删除账号「' + (account.name || account.uid || '') + '」？\n' +
+        '会同时删除该账号的登录态、聊天记录和火花任务，不可恢复。')) return;
+      btn.disabled = true;
+      try {
+        await api('/accounts/' + encodeURIComponent(accountId) + '/delete', { method: 'POST' });
+        toast('账号已删除', 'ok');
+        await loadAccounts();
+        if (accountId === activeId) setTimeout(function () { location.reload(); }, 400);
+      } catch (err) {
+        toast(err.message, 'err');
+        btn.disabled = false;
+      }
+    }
+  });
+
+  async function loadAccounts() {
+    try {
+      var data = await api('/accounts');
+      accounts = data.accounts || [];
+      activeId = data.active || (accounts[0] && accounts[0].id) || null;
+      renderChip();
+      renderMenu();
+      renderAcctCenter();
+    } catch (e) {
+      els.chip.innerHTML = '<span class="ava fb">!</span><span class="nm">账号读取失败</span><span class="caret">▾</span>';
+      setStatus(e.message);
+    }
+  }
+
+  function closeMenu() {
+    menuOpen = false;
+    els.menu.classList.remove('open');
+  }
+
+  els.chip.addEventListener('click', function (e) {
+    e.stopPropagation();
+    menuOpen = !menuOpen;
+    els.menu.classList.toggle('open', menuOpen);
+  });
+  document.addEventListener('click', function (e) {
+    if (menuOpen && !els.acct.contains(e.target)) closeMenu();
+  });
+
+  els.menu.addEventListener('click', function (e) {
+    if (e.target.closest('[data-open-accounts]')) {
+      e.preventDefault();
+      openAcctCenter();
+      return;
+    }
+    var btn = e.target.closest('[data-switch]');
+    if (!btn) return;
+    e.preventDefault();
+    closeMenu();
+    switchAccount(btn.getAttribute('data-switch'));
+  });
+
+  async function syncSpark(accountId) {
+    // 火花已经初始化时，跟随统一切换账号（会重启它的 Selenium 浏览器）。
+    try {
+      var state = await fetch('/spark/api/Api/GetInit').then(function (r) { return r.json(); });
+      if (!state || state.data !== 'Yes') return;
+      setStatus('正在同步火花账号...');
+      await fetch('/spark/api/Api/Account/Switch?account_id=' + encodeURIComponent(accountId), {
+        method: 'GET'
+      });
+    } catch (e) {
+      /* 火花没启动/同步失败不阻塞聊天账号切换 */
+    }
+  }
+
+  async function switchAccount(accountId) {
+    if (busy || !accountId || accountId === activeId) return;
+    busy = true;
+    setStatus('正在切换账号...');
+    els.login.disabled = true;
+    try {
+      await api('/accounts/switch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: accountId })
+      });
+      await syncSpark(accountId);
+      toast('已切换账号，正在重新加载...', 'ok');
+      setTimeout(function () { location.reload(); }, 350);
+    } catch (e) {
+      toast(e.message, 'err');
+      setStatus('');
+      els.login.disabled = false;
+      busy = false;
+    }
+  }
+
+  function setLoginBusy(running) {
+    els.login.disabled = false;
+    els.login.textContent = running ? '取消登录' : '登录 / 添加账号';
+    els.login.classList.toggle('cancel', running);
+  }
+
+  async function cancelLogin() {
+    els.login.disabled = true;
+    try { await api('/accounts/browser-login/cancel', { method: 'POST' }); } catch (e) {}
+    loginPolling = false;
+    setLoginBusy(false);
+    setStatus('');
+    toast('已取消登录');
+  }
+
+  async function pollLogin() {
+    if (!loginPolling) return;
+    try {
+      var data = await api('/accounts/browser-login/status');
+      setStatus(data.message || data.status || '');
+      if (data.status === 'done') {
+        loginPolling = false;
+        setLoginBusy(false);
+        toast('登录成功，账号已保存', 'ok');
+        await loadAccounts();
+        var active = activeId;
+        if (active) await syncSpark(active);
+        setTimeout(function () { location.reload(); }, 600);
+        return;
+      }
+      if (data.status === 'failed' || data.status === 'cancelled' || data.status === 'idle') {
+        loginPolling = false;
+        setLoginBusy(false);
+        if (data.status === 'failed') toast(data.message || '登录失败', 'err');
+        setStatus('');
+        return;
+      }
+    } catch (e) {
+      setStatus(e.message);
+    }
+    setTimeout(pollLogin, 1500);
+  }
+
+  els.login.addEventListener('click', async function () {
+    if (loginPolling) { cancelLogin(); return; }
+    els.login.disabled = true;
+    setStatus('正在启动登录浏览器...');
+    try {
+      await api('/accounts/browser-login/start', { method: 'POST' });
+      loginPolling = true;
+      setLoginBusy(true);
+      setStatus('请在弹出的浏览器窗口中扫码登录');
+      pollLogin();
+    } catch (e) {
+      toast(e.message, 'err');
+      setStatus('');
+      els.login.disabled = false;
+    }
+  });
+
+  function selectTab(name, updateHash) {
+    if (!els.tabs[name]) name = 'chat';
+    currentTab = name;
+    Object.keys(els.tabs).forEach(function (key) {
+      var on = key === name;
+      els.tabs[key].classList.toggle('active', on);
+      els.tabs[key].setAttribute('aria-selected', on ? 'true' : 'false');
+      els.frames[key].classList.toggle('active', on);
+    });
+    if (updateHash) history.replaceState(null, '', '#' + name);
+  }
+
+  Object.keys(els.tabs).forEach(function (key) {
+    els.tabs[key].addEventListener('click', function () { selectTab(key, true); });
+  });
+
+  window.addEventListener('hashchange', function () {
+    var hash = (location.hash || '#chat').slice(1);
+    if (hash === 'accounts') {
+      selectTab(currentTab, false);
+      openAcctCenter();
+      return;
+    }
+    closeAcctCenter();
+    selectTab(hash, false);
+  });
+
+  (function initView() {
+    var hash = (location.hash || '#chat').slice(1);
+    if (hash === 'accounts') {
+      selectTab('chat', false);
+      openAcctCenter();
+    } else {
+      selectTab(hash, false);
+    }
+  })();
+  loadAccounts();
+
+  // 让内嵌页面在切换账号/登录后也能主动刷新
+  window.addEventListener('message', function (event) {
+    if (event.origin !== location.origin) return;
+    if (event.data === 'douyin:reload') location.reload();
+    if (event.data === 'douyin:accounts-changed') loadAccounts();
+    if (event.data === 'douyin:open-accounts') openAcctCenter();
+  });
+})();
+</script>
+</body>
+</html>
