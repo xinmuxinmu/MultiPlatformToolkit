@@ -278,6 +278,7 @@ const props = defineProps({
   staticRange: Object,
   embeddedMessages: Array,
   selfUidOverride: String,
+  reloadToken: { type: Number, default: 0 },
 })
 const emit = defineEmits(['jumped', 'staticLoaded'])
 
@@ -775,6 +776,11 @@ watch(() => props.conversation, (conv) => {
     }
   }
 }, { immediate: true })
+
+watch(() => props.reloadToken, () => {
+  if (props.embeddedMessages || !props.conversation) return
+  fetchMessages(props.conversation.conv_id)
+})
 
 watch(() => props.embeddedMessages, (items) => {
   if (!items) return

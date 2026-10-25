@@ -92,6 +92,9 @@
   .toast.show{opacity:1;transform:translate(-50%,0)}
   .toast.err{background:#dc2626}
   .toast.ok{background:#16a34a}
+  /* 嵌在左侧软件栏的壳里时，外层已经有软件名，隐藏重复的返回/品牌 */
+  .topbar.embedded .back,
+  .topbar.embedded .brand { display: none; }
   @media (max-width:760px){
     .brand small,.manage,.status{display:none}
     .chip .nm{max-width:88px}
@@ -170,7 +173,6 @@
     <nav class="tabs" role="tablist">
       <button class="tab active" id="tab-chat" data-tab="chat" role="tab" aria-selected="true">聊天记录</button>
       <button class="tab" id="tab-console" data-tab="console" role="tab" aria-selected="false">导出控制台</button>
-      <button class="tab" id="tab-spark" data-tab="spark" role="tab" aria-selected="false">火花助手</button>
     </nav>
     <div class="spacer"></div>
     <span class="status" id="status"></span>
@@ -185,9 +187,8 @@
   </header>
 
   <div class="frames">
-    <iframe id="frame-chat" class="active" src="/douyin-chat/?embed=1" title="抖音聊天记录"></iframe>
+    <iframe id="frame-chat" class="active" src="about:blank" title="抖音聊天记录"></iframe>
     <iframe id="frame-console" src="/douyin-chat/panel?embed=1" title="抖音导出控制台"></iframe>
-    <iframe id="frame-spark" src="/spark/?embed=1" title="抖音火花助手"></iframe>
   </div>
 
   <!-- 统一账号中心：账号只在这里管理，聊天导出/火花内不再各放一套 -->
@@ -216,6 +217,11 @@
 (function () {
   'use strict';
 
+  if (new URLSearchParams(location.search).get('embed') === '1') {
+    var topbar = document.querySelector('.topbar');
+    if (topbar) topbar.classList.add('embedded');
+  }
+
   var PANEL = '/douyin-chat/panel/api';
   var accounts = [];
   var activeId = null;
@@ -239,13 +245,11 @@
     modalReload: document.getElementById('acctReload'),
     tabs: {
       chat: document.getElementById('tab-chat'),
-      console: document.getElementById('tab-console'),
-      spark: document.getElementById('tab-spark')
+      console: document.getElementById('tab-console')
     },
     frames: {
       chat: document.getElementById('frame-chat'),
-      console: document.getElementById('frame-console'),
-      spark: document.getElementById('frame-spark')
+      console: document.getElementById('frame-console')
     }
   };
 
@@ -588,6 +592,8 @@
   });
 
   (function initView() {
+    // 给查看器带一个时间戳，避免浏览器一直用缓存的旧前端资源
+    try { els.frames.chat.src = '/douyin-chat/?embed=1&v=' + Date.now(); } catch (e) {}
     var hash = (location.hash || '#chat').slice(1);
     if (hash === 'accounts') {
       selectTab('chat', false);

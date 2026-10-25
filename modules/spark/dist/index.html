@@ -750,6 +750,13 @@
         .app-shell.embedded .topbar { display: none; }
       }
 
+      /* 由消息查看器内嵌时只保留内容区，导航交给查看器 */
+      .app-shell.no-chrome .sidebar,
+      .app-shell.no-chrome .topbar,
+      .app-shell.no-chrome .sidebar-overlay { display: none !important; }
+      .app-shell.no-chrome .main-area { width: 100%; }
+      .app-shell.no-chrome .page-body { padding: 18px 22px; }
+
       /* ============================================================
          Spark Calendar (火花日历)
          ============================================================ */

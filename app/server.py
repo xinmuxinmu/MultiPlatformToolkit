@@ -72,12 +72,15 @@ def back_button_script():
     return FileResponse(SHELL_DIR / "back.js", media_type="application/javascript")
 
 
+_NO_STORE = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
+
+
 @app.get("/douyin", include_in_schema=False)
 @app.get("/douyin/", include_in_schema=False)
 def douyin_page():
-    return FileResponse(SHELL_DIR / "douyin.html")
+    return FileResponse(SHELL_DIR / "douyin.html", headers=_NO_STORE)
 
 
 @app.get("/", include_in_schema=False)
 def shell():
-    return FileResponse(SHELL_DIR / "index.html")
+    return FileResponse(SHELL_DIR / "index.html", headers=_NO_STORE)

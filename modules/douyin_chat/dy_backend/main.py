@@ -1,12 +1,15 @@
 """FastAPI backend for browsing exported Douyin chat data."""
 import hashlib
 import hmac
+import json
 import os
 import secrets
 import time
+import uuid
 from typing import Literal
 
 from fastapi import FastAPI, Query, Request, HTTPException
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
@@ -321,6 +324,84 @@ def get_user(uid: str):
     return user
 
 
+def _spark_account_id() -> str:
+    from dy_common import accounts
+    active = accounts.get_active()
+    return active["id"] if active else ""
+
+
+@app.get("/api/spark/map")
+def spark_map():
+    """会话列表用：当前账号的火花天数 + 定时任务时间。"""
+    from dy_common.spark_bridge import (
+        load_spark_fire_days, load_spark_friends, load_spark_tasks,
+    )
+    account_id = _spark_account_id()
+    return {
+        "fire": load_spark_fire_days(account_id),
+        "tasks": load_spark_tasks(account_id),
+        "sec_uids": load_spark_friends(),
+    }
+
+
+@app.get("/api/spark/info")
+def spark_info(name: str):
+    """右侧火花详情：天数、任务、今日是否已续、最近发送。"""
+    from dy_common.spark_bridge import spark_info_for
+    return spark_info_for(name, _spark_account_id())
+
+
+class LocalMessageRequest(BaseModel):
+    text: str
+
+
+@app.post("/api/conversations/{conv_id}/messages/local")
+def save_local_message(conv_id: str, req: LocalMessageRequest):
+    """把从查看器直接发出的消息备份到本地数据库。"""
+    text = (req.text or "").strip()
+    if not text:
+        raise HTTPException(400, "消息内容为空")
+    from dy_common import accounts
+    from dy_common.db import update_conversation_stats
+
+    conn = database.get_db()
+    try:
+        conv = conn.execute(
+            "SELECT name FROM conversations WHERE conv_id = ?", (conv_id,)
+        ).fetchone()
+        if not conv:
+            raise HTTPException(404, "会话不存在")
+        active = accounts.get_active() or {}
+        sender_uid = str(active.get("uid") or "")
+        sender_name = str(active.get("name") or "我")
+        seq = int(conn.execute(
+            "SELECT COALESCE(MAX(seq), 0) + 1 FROM messages WHERE conv_id = ?",
+            (conv_id,),
+        ).fetchone()[0] or 1)
+        msg_id = "local-" + uuid.uuid4().hex
+        ts = int(time.time())
+        raw = json.dumps({"_local_backup": True, "text": text}, ensure_ascii=False)
+        conn.execute(
+            """INSERT INTO messages
+               (msg_id, conv_id, sender_uid, sender_name, content, msg_type,
+                media_url, media_local_path, timestamp, seq, raw_data, ref_msg)
+               VALUES (?, ?, ?, ?, ?, 1, '', '', ?, ?, ?, NULL)""",
+            (msg_id, conv_id, sender_uid, sender_name, text, ts, seq, raw),
+        )
+        update_conversation_stats(conn, conv_id)
+        conn.commit()
+        return {
+            "ok": True,
+            "msg_id": msg_id,
+            "seq": seq,
+            "sender_uid": sender_uid,
+            "sender_name": sender_name,
+            "timestamp": ts,
+        }
+    finally:
+        conn.close()
+
+
 # Control panel
 from dy_backend.control_panel import control_router, restore_schedule_on_startup
 app.include_router(control_router)
@@ -358,6 +439,12 @@ if os.path.isdir(_frontend_dist):
     app.mount("/assets", StaticFiles(directory=os.path.join(_frontend_dist, "assets")), name="assets")
 
     _index_html = os.path.join(_frontend_dist, "index.html")
+    # 前端重新构建后资源文件名会变，入口 HTML 必须每次回源，避免浏览器继续吃旧页面
+    _NO_STORE = {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    }
 
     @app.get("/favicon.svg")
     def serve_favicon():
@@ -365,10 +452,10 @@ if os.path.isdir(_frontend_dist):
 
     @app.get("/")
     def serve_frontend_root():
-        return FileResponse(_index_html)
+        return FileResponse(_index_html, headers=_NO_STORE)
 
     @app.get("/{full_path:path}")
     def serve_frontend(full_path: str):
         if full_path.startswith("panel"):
             raise HTTPException(404)
-        return FileResponse(_index_html)
+        return FileResponse(_index_html, headers=_NO_STORE)

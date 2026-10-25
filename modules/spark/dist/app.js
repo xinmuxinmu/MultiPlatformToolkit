@@ -8,6 +8,11 @@ const EMBEDDED = (() => {
   try { return window.self !== window.top || new URLSearchParams(location.search).get('embed') === '1'; }
   catch (e) { return true; }
 })();
+// 由消息查看器内嵌时隐藏火花自己的侧栏/顶栏，只保留页面内容
+const CHROME_HIDDEN = (() => {
+  try { return new URLSearchParams(location.search).get('chrome') === '0'; }
+  catch (e) { return false; }
+})();
 function openAccountCenter() {
   var url = '/douyin/#accounts';
   try {
@@ -278,7 +283,7 @@ const Login = {
 // ===== Layout Component =====
 const Layout = {
   template: `
-  <div class="app-shell" :class="{ embedded: embedded }">
+  <div class="app-shell" :class="{ embedded: embedded, 'no-chrome': chromeHidden }">
     <div v-if="isMobile && sidebarVisible" class="sidebar-overlay" @click="closeSidebar"></div>
     <aside class="sidebar" :class="{ collapsed: isCollapsed && !isMobile, 'sidebar-mobile': isMobile, 'sidebar-mobile-visible': sidebarVisible }">
       <div class="sidebar-header">
@@ -374,7 +379,6 @@ const Layout = {
       { path: '/home', title: '首页', icon: 'House' },
       { path: '/friends', title: '好友列表', icon: 'User' },
       { path: '/groups', title: '好友分组', icon: 'FolderOpened' },
-      { path: '/chat', title: '聊天', icon: 'ChatDotRound' },
       { path: '/tasks', title: '定时任务', icon: 'Clock' },
       { path: '/calendar', title: '火花日历', icon: 'Calendar' },
       { path: '/settings', title: '设置', icon: 'Setting' }
@@ -403,7 +407,7 @@ const Layout = {
         ).then(async () => { await switchDouyinAccount(acc.id); }).catch(() => {});
       }
     };
-    return { embedded: EMBEDDED, isCollapsed, isMobile, sidebarVisible, toggleSidebar, closeSidebar, menuList, cachedViews, activeMenu, currentMenuTitle, handleMenuSelect, handleCommand, handleAccountCommand, userStore, browserStatus, douyinAvatar, douyinNickname, accounts, activeAccountName, switchingAccount, loginStatus };
+    return { embedded: EMBEDDED, chromeHidden: CHROME_HIDDEN, isCollapsed, isMobile, sidebarVisible, toggleSidebar, closeSidebar, menuList, cachedViews, activeMenu, currentMenuTitle, handleMenuSelect, handleCommand, handleAccountCommand, userStore, browserStatus, douyinAvatar, douyinNickname, accounts, activeAccountName, switchingAccount, loginStatus };
   }
 };
 
@@ -530,9 +534,8 @@ const Home = {
       const p = []; if (days > 0) p.push(`${days}天`); if (h > 0 || days > 0) p.push(`${h}小时`); if (m > 0 || h > 0 || days > 0) p.push(`${m}分`); p.push(`${sec}秒`); return p.join(' ');
     };
     const checkBrowserStatus = async () => {
-      try { const res = await API.getInitStatus(); browserStatus.value = res.data === 'Yes'; setBrowserStatus(browserStatus.value);
-        if (!browserStatus.value) ElMessageBox.confirm('浏览器未初始化，是否立即初始化？', '提示', { confirmButtonText: '立即初始化', cancelButtonText: '稍后', type: 'warning' }).then(async () => await initBrowser()).catch(() => {});
-      } catch (e) { browserStatus.value = false; setBrowserStatus(false); }
+      try { const res = await API.getInitStatus(); browserStatus.value = res.data === 'Yes'; setBrowserStatus(browserStatus.value); }
+      catch (e) { browserStatus.value = false; setBrowserStatus(false); }
     };
     let _lastLoginCheck = 0;
     const checkLoginStatus = async (force = false) => { const now = Date.now(); if (!force && now - _lastLoginCheck < 30000) return; _lastLoginCheck = now; try { const res = await API.getLoginStatus(); loginStatus.value = res.data === 'Yes'; setLoginStatus(loginStatus.value); if (loginStatus.value && !douyinNickname.value) { try { const u = await API.getUsername(); if (u.code == 200 && u.data) setDouyinUser(u.data.nickname || '', u.data.avatar || ''); } catch (e) {} } else if (!loginStatus.value) { setDouyinUser('', ''); } } catch (e) { loginStatus.value = false; setLoginStatus(false); } };

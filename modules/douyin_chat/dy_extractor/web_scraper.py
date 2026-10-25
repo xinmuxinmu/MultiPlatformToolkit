@@ -64,12 +64,6 @@ USER_INFO_API = "https://www.douyin.com/aweme/v1/web/im/user/info/"
 BATCH_USER_INFO = 20
 
 
-def _filter_conversations(conversations, name_filter):
-    """Panel selections are exact nicknames, including short names like 'n'."""
-    names = {part.strip() for part in name_filter.split(",") if part.strip()}
-    return [c for c in conversations
-            if c.get("nickname") in names or c.get("name") in names]
-
 # ── DOM Selectors (from discovery) ──────────────────────────────
 # Conversation list
 SEL_CONV_LIST = 'div[class*="conversationConversationListwrapper"]'
@@ -749,9 +743,19 @@ class WebChatScraper:
         await self.navigate_to_chat()
         await asyncio.sleep(2)
 
-        print("[*] 正在加载会话列表...")
-        conversations = await self._load_all_conversations()
-        print(f"[+] 共发现 {len(conversations)} 个会话")
+        if self.name_filter:
+            # 有明确名单时别先滚完整张会话表：直接按名单逐个定位，
+            # 会话多时能省掉几十秒的整表扫描。
+            wanted = [p.strip() for p in re.split(r"[,，]", self.name_filter) if p.strip()]
+            conversations = [
+                {"name": name, "nickname": name, "time": "", "preview": ""}
+                for name in wanted
+            ]
+            print(f"[*] 按名单直接处理 {len(conversations)} 个会话（跳过整表扫描）")
+        else:
+            print("[*] 正在加载会话列表...")
+            conversations = await self._load_all_conversations()
+            print(f"[+] 共发现 {len(conversations)} 个会话")
 
         if not conversations:
             print("[-] 未找到会话")
@@ -766,27 +770,6 @@ class WebChatScraper:
             except Exception:
                 pass
             return
-
-        if self.name_filter:
-            # Support comma-separated multiple filters
-            filtered = _filter_conversations(conversations, self.name_filter)
-            print(f"[*] 过滤后: {len(filtered)} 个会话匹配 \"{self.name_filter}\"")
-            if not filtered:
-                print(f"[-] 没有匹配的会话。全部会话名称:")
-                for c in conversations:
-                    print(f"    - {c.get('nickname', '')} ({c['name']})")
-            # 火花好友名单里的目标可能改了名、或标题里混了火花天数导致名字没匹配上，
-            # 但它们有 sec_uid 可精确匹配，仍然尝试直接定位，别悄悄漏掉。
-            seen = {c.get("nickname") or c["name"] for c in filtered}
-            wanted = {p.strip() for p in self.name_filter.split(",") if p.strip()}
-            for name in sorted(wanted - seen):
-                if name in self._spark_sec_uids:
-                    filtered.append({"name": name, "nickname": name,
-                                     "time": "", "preview": ""})
-                    print(f"[*] 名单里的「{name}」不在已发现列表，按火花的 sec_uid 直接定位")
-            if not filtered:
-                return
-            conversations = filtered
 
         for i, conv in enumerate(conversations):
             if _stop_requested():
@@ -2784,6 +2767,18 @@ class WebChatScraper:
             seq = order_high * (1 << 32) + unsigned_low if (order_high or order_low) else (batch_seq_start + idx)
 
             ref_msg = msg.get("ref_msg")
+
+            # 查看器里直接发出的消息会先以 local- 前缀备份到本地；这里抓到
+            # 服务端同一条消息时把本地副本删掉，避免出现两条气泡。
+            if timestamp and sender_uid and content:
+                conn.execute(
+                    """DELETE FROM messages
+                       WHERE conv_id = ? AND msg_id LIKE 'local-%'
+                         AND sender_uid = ? AND content = ?
+                         AND raw_data LIKE '%_local_backup%'
+                         AND ABS(timestamp - ?) <= 120""",
+                    (conv_id, sender_uid, content, timestamp),
+                )
 
             cursor = conn.execute(
                 """INSERT OR IGNORE INTO messages

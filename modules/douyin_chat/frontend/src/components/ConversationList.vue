@@ -2,6 +2,15 @@
   <div class="conv-list">
     <div class="conv-header">
       <h2>会话</h2>
+      <button
+        class="spark-init-btn"
+        :class="{ ready: sparkReady === true, busy: sparkInitBusy, off: sparkReady === false }"
+        :disabled="sparkInitBusy || sparkReady === true"
+        :title="sparkButtonTitle"
+        @click="initSpark"
+      >
+        <span class="dot"></span>{{ sparkButtonLabel }}
+      </button>
     </div>
     <div class="conv-search">
       <input
@@ -26,6 +35,8 @@
           <div class="conv-name">{{ conv.name || '未命名' }}</div>
           <div class="conv-meta">
             <span>{{ conv.message_count || 0 }} 条消息</span>
+            <span v-if="fireOf(conv)" class="conv-fire">🔥 {{ fireOf(conv) }}</span>
+            <span v-if="taskOf(conv)" class="conv-task">⏰ {{ taskOf(conv).time }}</span>
           </div>
         </div>
         <button
@@ -59,11 +70,13 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { resolveAvatarUrl } from '@/lib/media'
 
 const props = defineProps({
   activeId: String,
+  fireByName: { type: Object, default: () => ({}) },
+  taskByName: { type: Object, default: () => ({}) },
 })
 const emit = defineEmits(['select', 'deleted'])
 
@@ -73,8 +86,89 @@ const pendingDelete = ref(null)
 const deleting = ref(false)
 let searchTimeout = null
 
+// 火花浏览器（发消息 / 续火花共用）状态与初始化
+const sparkReady = ref(null)
+const sparkInitBusy = ref(false)
+const sparkInitError = ref('')
+const sparkButtonLabel = ref('检测中…')
+const sparkButtonTitle = ref('检测火花浏览器状态')
+
+async function checkSparkReady() {
+  try {
+    const res = await fetch('/spark/api/Api/GetInit')
+    const data = await res.json()
+    sparkReady.value = data.data === 'Yes'
+  } catch (e) {
+    sparkReady.value = false
+  }
+  updateSparkButton()
+}
+
+function updateSparkButton() {
+  if (sparkInitBusy.value) {
+    sparkButtonLabel.value = '初始化中…'
+    sparkButtonTitle.value = '正在启动火花浏览器'
+  } else if (sparkInitError.value) {
+    sparkButtonLabel.value = '初始化失败'
+    sparkButtonTitle.value = sparkInitError.value
+  } else if (sparkReady.value === true) {
+    sparkButtonLabel.value = '浏览器就绪'
+    sparkButtonTitle.value = '火花浏览器已就绪（发消息 / 续火花共用）'
+  } else if (sparkReady.value === false) {
+    sparkButtonLabel.value = '初始化'
+    sparkButtonTitle.value = '初始化火花浏览器（发消息 / 续火花共用）'
+  } else {
+    sparkButtonLabel.value = '检测中…'
+    sparkButtonTitle.value = '检测火花浏览器状态'
+  }
+}
+
+async function initSpark() {
+  if (sparkInitBusy.value || sparkReady.value === true) return
+  sparkInitBusy.value = true
+  sparkInitError.value = ''
+  updateSparkButton()
+  try {
+    const res = await fetch('/spark/api/Api/Init')
+    const data = await res.json()
+    if (data.code !== 200) throw new Error(data.data || '初始化失败')
+    for (let i = 0; i < 60; i++) {
+      await new Promise((r) => setTimeout(r, 1000))
+      const s = await fetch('/spark/api/Api/GetInit').then((r) => r.json())
+      if (s.data === 'Yes') {
+        sparkReady.value = true
+        updateSparkButton()
+        return
+      }
+    }
+    throw new Error('初始化超时，请稍后重试')
+  } catch (e) {
+    sparkInitError.value = e.message || '初始化失败'
+  } finally {
+    sparkInitBusy.value = false
+    updateSparkButton()
+  }
+}
+
+function onSparkReadyEvent() {
+  sparkInitError.value = ''
+  checkSparkReady()
+}
+
 function getConvAvatar(conv) {
   return resolveAvatarUrl(conv.avatar_url)
+}
+
+function convKey(conv) {
+  return String(conv?.name || '').replace(/[\s ]+/g, ' ').trim()
+}
+
+function fireOf(conv) {
+  return props.fireByName?.[convKey(conv)] || ''
+}
+
+function taskOf(conv) {
+  return props.taskByName?.[convKey(conv)] || null
 }
 
 async function fetchConversations(search = '') {
@@ -126,7 +220,12 @@ async function confirmDelete() {
 }
 
 onMounted(() => {
+  checkSparkReady()
+  window.addEventListener('spark-browser-ready', onSparkReadyEvent)
   fetchConversations()
+})
+onUnmounted(() => {
+  window.removeEventListener('spark-browser-ready', onSparkReadyEvent)
 })
 </script>
 
@@ -150,6 +249,29 @@ onMounted(() => {
   font-size: 16px;
   font-weight: 600;
 }
+.spark-init-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-muted);
+  font: 600 11px/1.4 inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.spark-init-btn .dot {
+  width: 6px; height: 6px; border-radius: 50%; background: #f59e0b; flex: none;
+}
+.spark-init-btn.ready { color: #16a34a; border-color: rgba(22,163,74,.3); background: rgba(22,163,74,.06); cursor: default; }
+.spark-init-btn.ready .dot { background: #22c55e; }
+.spark-init-btn.busy .dot { background: #2563eb; animation: spark-pulse 1s infinite; }
+.spark-init-btn.off:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+.spark-init-btn:disabled { opacity: .7; }
+@keyframes spark-pulse { 50% { opacity: .3; } }
 
 
 .conv-search {
@@ -233,7 +355,12 @@ onMounted(() => {
   font-size: 12px;
   color: var(--text-muted);
   margin-top: 2px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
+.conv-fire { color: #f59e0b; font-weight: 600; }
+.conv-task { color: var(--text-muted); }
 
 .conv-delete {
   flex-shrink: 0;
