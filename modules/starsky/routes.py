@@ -115,6 +115,68 @@ def _run_quiet(cmd: list[str], timeout: int = 15) -> tuple[int, str]:
         return -1, str(exc)
 
 
+def _ps_quote(text: str) -> str:
+    return "'" + str(text).replace("'", "''") + "'"
+
+
+def _schtasks_elevated(args: list[str], timeout: int = 180) -> tuple[int, str]:
+    """通过 UAC 提权执行 schtasks（/RL HIGHEST 建任务必须管理员）。"""
+    tmp = HOME / "_elevated"
+    tmp.mkdir(parents=True, exist_ok=True)
+    stamp = f"{os.getpid()}_{int(time.time() * 1000)}"
+    script = tmp / f"schtasks_{stamp}.ps1"
+    result = tmp / f"schtasks_{stamp}.txt"
+    calls = " ".join(_ps_quote(a) for a in args)
+    script.write_text(
+        "$ErrorActionPreference = 'Continue'\n"
+        f"$out = & schtasks.exe {calls} 2>&1 | Out-String\n"
+        f"[IO.File]::WriteAllText({_ps_quote(str(result))}, $out, [Text.UTF8Encoding]::new($false))\n"
+        "exit $LASTEXITCODE\n",
+        encoding="utf-8-sig",
+    )
+    inner = (
+        '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden '
+        f'-File "{script}"'
+    )
+    cmd = (
+        "try { $p = Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -PassThru "
+        f"-ArgumentList {_ps_quote(inner)}; exit $p.ExitCode }} "
+        "catch { exit 1223 }"
+    )
+    code = -1
+    try:
+        p = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-Command", cmd],
+            capture_output=True,
+            timeout=timeout,
+            creationflags=CREATE_NO_WINDOW,
+        )
+        code = p.returncode
+    except subprocess.TimeoutExpired:
+        code = -1
+    except Exception:  # noqa: BLE001
+        code = -1
+    text = ""
+    try:
+        if result.exists():
+            text = result.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        pass
+    for f in (script, result):
+        try:
+            f.unlink()
+        except OSError:
+            pass
+    return code, text
+
+
+def _run_schtasks(args: list[str], timeout: int = 30) -> tuple[int, str]:
+    """建/删任务：管理员直接执行，普通权限自动走 UAC 提权。"""
+    if _is_admin():
+        return _run_quiet(["schtasks"] + args, timeout=timeout)
+    return _schtasks_elevated(args)
+
+
 def _task_info() -> dict:
     if os.name != "nt":
         return {"exists": False, "info": {}, "error": "仅支持 Windows"}
@@ -323,9 +385,8 @@ def create_schedule(body: dict):
         "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden "
         f'-File "{PS1}" -Quiet'
     )
-    code, out = _run_quiet(
+    code, out = _run_schtasks(
         [
-            "schtasks",
             "/Create",
             "/TN",
             TASK_NAME,
@@ -339,18 +400,34 @@ def create_schedule(body: dict):
             "HIGHEST",
             "/F",
         ],
-        timeout=30,
+        timeout=180,
     )
+    if code == 1223:
+        return JSONResponse(
+            {"ok": False, "error": "已取消管理员授权（UAC），计划任务未创建"},
+            status_code=403,
+        )
     if code != 0:
-        return JSONResponse({"ok": False, "error": out or "创建计划任务失败"}, status_code=500)
+        return JSONResponse(
+            {"ok": False, "error": out or "创建计划任务失败"}, status_code=500
+        )
     return {"ok": True, "time": at, "note": out[-300:]}
 
 
 @router.delete("/api/schedule")
 def delete_schedule():
-    code, out = _run_quiet(["schtasks", "/Delete", "/TN", TASK_NAME, "/F"], timeout=20)
+    if not _task_info().get("exists"):
+        return JSONResponse({"ok": False, "error": "计划任务不存在"}, status_code=404)
+    code, out = _run_schtasks(["/Delete", "/TN", TASK_NAME, "/F"], timeout=180)
+    if code == 1223:
+        return JSONResponse(
+            {"ok": False, "error": "已取消管理员授权（UAC），计划任务未删除"},
+            status_code=403,
+        )
     if code != 0:
-        return JSONResponse({"ok": False, "error": out or "删除计划任务失败"}, status_code=500)
+        return JSONResponse(
+            {"ok": False, "error": out or "删除计划任务失败"}, status_code=500
+        )
     return {"ok": True, "note": out[-300:]}
 
 

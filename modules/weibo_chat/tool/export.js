@@ -42,6 +42,9 @@ const CHROME = [
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
 ].find(p => fs.existsSync(p));
 
+// 统一应用的无头开关通过环境变量下发；单独运行脚本时保持原先的无头导出
+const HEADLESS = process.env.WEIBO_HEADLESS !== '0';
+
 const FFMPEG = [
   'D:\\Program\\ffmpeg\\bin\\ffmpeg.exe',
   'C:\\ffmpeg\\bin\\ffmpeg.exe',
@@ -68,6 +71,7 @@ argv.forEach(a => {
 });
 if (OPT['max-group']) MAX_GROUP = Math.max(20, parseInt(OPT['max-group'], 10) || 3000);
 if (OPT['max-dm']) MAX_DM = Math.max(20, parseInt(OPT['max-dm'], 10) || 100000);
+const ONLY_UID = String(OPT['only-uid'] || '').trim();
 
 async function doStatus() {
   const out = { ok: false, name: '', uid: '' };
@@ -107,7 +111,7 @@ async function main() {
   // 1) 尝试复用已保存的登录态（--login 时跳过，强制重新扫码）
   if (!OPT.login && fs.existsSync(STATE)) {
     try {
-      browser = await chromium.launch({ executablePath: CHROME, headless: true });
+      browser = await chromium.launch({ executablePath: CHROME, headless: HEADLESS });
       ctx = await browser.newContext({ storageState: JSON.parse(fs.readFileSync(STATE, 'utf8')) });
       page = await ctx.newPage();
       await page.goto('https://api.weibo.com/chat', { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -150,7 +154,7 @@ async function main() {
     console.log('登录成功，已保存登录态。');
     await ctx.close();
     if (OPT.login) { console.log('LOGIN_DONE'); return; }
-    browser = await chromium.launch({ executablePath: CHROME, headless: true });
+    browser = await chromium.launch({ executablePath: CHROME, headless: HEADLESS });
     ctx = await browser.newContext({ storageState: JSON.parse(fs.readFileSync(STATE, 'utf8')) });
     page = await ctx.newPage();
     await page.goto('https://api.weibo.com/chat', { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -170,8 +174,16 @@ async function main() {
   console.log('账号：' + prof.screen_name + ' (' + myUid + ')');
 
   const cl = await api('/webim/2/direct_messages/contacts.json?special_source=3&add_virtual_user=3,4&is_include_group=1&need_back=0,0&is_include_folder=1&count=200' + SRC + Date.now());
-  const contacts = (cl.contacts || []).filter(c => c.user && c.user.id);
-  console.log('会话数：' + contacts.length);
+  const allContacts = (cl.contacts || []).filter(c => c.user && c.user.id);
+  let contacts = allContacts;
+  if (ONLY_UID) {
+    contacts = allContacts.filter(c => String(c.user.id) === ONLY_UID);
+    if (!contacts.length) {
+      console.log('未找到要更新的会话 UID：' + ONLY_UID);
+      process.exit(2);
+    }
+  }
+  console.log('会话数：' + contacts.length + (ONLY_UID ? '（只更新当前会话）' : ''));
 
   const convs = [];
   // 增量导出基线：只认由本工具生成（含 fixed 标记）的 raw.json
@@ -254,6 +266,14 @@ async function main() {
     });
     const added = norm.length;
     if (added) console.log('[' + idx + '/' + contacts.length + '] ' + name + (isGroup ? ' (群)' : '') + ' -> +' + added + ' 条（共 ' + merged.length + '）');
+  }
+
+  // 只更新单个会话时，把上次导出里的其它会话原样保留，避免 raw.json 只剩一个人
+  if (ONLY_UID && base && Array.isArray(base.convs)) {
+    const have = new Set(convs.map(c => String(c.uid)));
+    for (const c of base.convs) {
+      if (!have.has(String(c.uid))) convs.push(c);
+    }
   }
 
   // ---- 长消息补全：列表接口对 isLargeDm 只返回截断文本，需单独取全文 ----

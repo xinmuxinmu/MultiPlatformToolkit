@@ -1063,6 +1063,7 @@ function applyI18n() {
     b.classList.toggle('active', b.dataset.lang === lang);
   });
   document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+  document.title = lang === 'zh' ? '控制面板 - 抖音聊天记录' : 'Control Panel - Douyin Chat History';
 }
 
 function setLang(l) {
@@ -1093,6 +1094,24 @@ function setTheme(t) {
 (function() {
   const saved = localStorage.getItem('panel-theme');
   if (saved) setTheme(saved);
+})();
+
+/* 统一入口的主题/语言：嵌入时隐藏自己的切换器，改由外层控制 */
+(function applyGlobalUiSettings() {
+  const embedded = window.self !== window.top;
+  if (embedded) {
+    document.querySelectorAll('.lang-switcher, .theme-switcher').forEach(el => { el.style.display = 'none'; });
+  }
+  function apply(settings) {
+    if (!settings) return;
+    if (settings.theme) setTheme(settings.theme);
+    if (settings.lang) setLang(settings.lang);
+  }
+  fetch('/api/ui/settings').then(r => r.json()).then(apply).catch(() => {});
+  window.addEventListener('message', (e) => {
+    if (e.origin !== location.origin) return;
+    if (e.data && e.data.type === 'mp:settings') apply(e.data);
+  });
 })();
 
 /* ── Sidebar navigation: show one page, remember the last ── */

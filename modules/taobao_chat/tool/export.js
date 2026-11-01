@@ -44,13 +44,15 @@ const OPT = parseArgs(process.argv.slice(2));
 
 function parseArgs(argv) {
   const opt = { login: false, status: false, headless: false, mode: 'incremental',
-                input: '', urls: [] };
+                input: '', urls: [], auto: false, only: '' };
   for (const arg of argv) {
     if (arg === '--login') opt.login = true;
     else if (arg === '--status') opt.status = true;
     else if (arg === '--headless') opt.headless = true;
     else if (arg.startsWith('--mode=')) opt.mode = arg.slice(7);
     else if (arg.startsWith('--input=')) opt.input = arg.slice(8);
+    else if (arg === '--auto') opt.auto = true;
+    else if (arg.startsWith('--only=')) opt.only = arg.slice(7).trim();
     else if (arg.startsWith('--url=')) opt.urls.push(arg.slice(6));
     else if (!arg.startsWith('--')) opt.urls.push(arg);
   }
@@ -380,7 +382,10 @@ function messageKey(m) {
 }
 
 function mergeConv(convs, conv) {
-  const existing = convs.find((c) => c.id === conv.id);
+  // 自动发现的会话用卖家 uid 做键，手动链接导出用的是 URL 里的名字；
+  // 两边对不上时按昵称合并，避免同一个人出现两条记录。
+  const existing = convs.find((c) => c.id === conv.id) ||
+                   convs.find((c) => c.name === conv.name);
   if (!existing) {
     convs.push(conv);
     return conv;
@@ -415,6 +420,174 @@ function renderViewer(data) {
   fs.writeFileSync(VIEWER_FILE, template.replace('__DATA__', safe), 'utf-8');
 }
 
+async function discoverConversations(frame) {
+  const seen = new Map();
+  for (let round = 0; round < 100; round++) {
+    let items = [];
+    try {
+      items = await frame.evaluate(() => {
+        return [...document.querySelectorAll('.conversation-item')].map((el) => ({
+          rawId: el.id || '',
+          name: (el.querySelector('.name')?.innerText || '').trim(),
+          avatar: el.querySelector('.avatar-img')?.getAttribute('src') || '',
+        })).filter((x) => x.name);
+      });
+    } catch (e) { break; }
+    let added = 0;
+    for (const item of items) {
+      if (!seen.has(item.name)) { seen.set(item.name, item); added++; }
+    }
+    const moved = await frame.evaluate(() => {
+      function scroller(root) {
+        let best = null, bestOver = 0;
+        const nodes = [root, ...root.querySelectorAll('*')];
+        for (const node of nodes) {
+          const st = getComputedStyle(node);
+          if (!/(auto|scroll)/.test(st.overflowY)) continue;
+          const over = node.scrollHeight - node.clientHeight;
+          if (over > 10 && over > bestOver) { bestOver = over; best = node; }
+        }
+        return best;
+      }
+      const list = document.querySelector('.ww_conversation_list') ||
+                   document.querySelector('.ww_conversation');
+      if (!list) return { moved: 0, atBottom: true };
+      const sc = scroller(list) || list;
+      const before = sc.scrollTop;
+      sc.scrollTop += Math.max(100, sc.clientHeight * 0.6);
+      return {
+        moved: sc.scrollTop - before,
+        atBottom: sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 2,
+      };
+    }).catch(() => ({ moved: 0, atBottom: true }));
+    await sleep(350);
+    if (!added && moved.atBottom) break;
+  }
+  return [...seen.values()];
+}
+
+async function openConversation(frame, conv) {
+  const search = frame.locator('input[placeholder*="搜索"]').first();
+  let used = false;
+  try {
+    if (await search.count()) {
+      await search.fill(conv.name);
+      await sleep(600);
+      used = true;
+    }
+  } catch (e) { /* 搜索框不可用时直接按列表找 */ }
+
+  let item = frame.locator('.conversation-item').filter({ hasText: conv.name }).first();
+  if (!(await item.count())) {
+    if (used) { try { await search.fill(''); } catch (e) {} }
+    await frame.evaluate(() => {
+      const list = document.querySelector('.ww_conversation_list') ||
+                   document.querySelector('.ww_conversation');
+      if (!list) return;
+      const nodes = [list, ...list.querySelectorAll('*')];
+      for (const node of nodes) {
+        if (/(auto|scroll)/.test(getComputedStyle(node).overflowY)) node.scrollTop = 0;
+      }
+    }).catch(() => {});
+    await sleep(300);
+    for (let i = 0; i < 40; i++) {
+      item = frame.locator('.conversation-item').filter({ hasText: conv.name }).first();
+      if (await item.count()) break;
+      const moved = await frame.evaluate(() => {
+        const list = document.querySelector('.ww_conversation_list') ||
+                     document.querySelector('.ww_conversation');
+        if (!list) return false;
+        const nodes = [list, ...list.querySelectorAll('*')];
+        let sc = null;
+        for (const node of nodes) {
+          if (/(auto|scroll)/.test(getComputedStyle(node).overflowY) &&
+              node.scrollHeight - node.clientHeight > 10) { sc = node; break; }
+        }
+        if (!sc) return false;
+        const before = sc.scrollTop;
+        sc.scrollTop += Math.max(100, sc.clientHeight * 0.6);
+        return sc.scrollTop > before;
+      }).catch(() => false);
+      if (!moved) break;
+      await sleep(300);
+    }
+  }
+  if (!(await item.count())) return false;
+  await item.click();
+  await sleep(1400);
+  if (used) { try { await search.fill(''); } catch (e) {} }
+  return true;
+}
+
+async function exportAllFromList(context, page, convs) {
+  log(OPT.only ? '[*] 打开淘宝聊天页…' : '[*] 自动获取账号内的会话列表…');
+  await page.goto(CHAT_ENTRY, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+  await sleep(2500);
+  let frame = null;
+  for (let i = 0; i < 25 && !frame; i++) {
+    for (const f of page.frames()) {
+      try {
+        if (await f.evaluate(() => !!document.querySelector('.conversation-item'))) { frame = f; break; }
+      } catch (e) { /* frame navigating */ }
+    }
+    if (!frame) await sleep(1000);
+  }
+  if (!frame) throw new Error('没有找到淘宝会话列表（可能未登录或页面结构变化）');
+
+  let list;
+  if (OPT.only) {
+    list = [{ name: OPT.only, rawId: '' }];
+    log(`[*] 只更新会话：${OPT.only}`);
+  } else {
+    list = await discoverConversations(frame);
+    log(`[*] 发现 ${list.length} 个会话`);
+  }
+  if (!list.length) throw new Error('会话列表为空');
+
+  let index = 0;
+  for (const conv of list) {
+    index++;
+    log(`\n[${index}/${list.length}] ${conv.name}`);
+    try {
+      if (!(await openConversation(frame, conv))) {
+        log('  [!] 会话列表里没找到这一项，跳过');
+        continue;
+      }
+      await frame.waitForSelector('.message-list', { timeout: 15000 }).catch(() => {});
+      log('  [*] 正在向上加载历史消息…');
+      const result = await frame.evaluate(FRAME_JS);
+      const rawMessages = result.messages || [];
+      if (!rawMessages.length) {
+        log('  [!] 没有解析到消息，跳过');
+        continue;
+      }
+      log(`  [*] 已解析 ${rawMessages.length} 条消息（聊天窗口共 ${result.after} 行）`);
+
+      let stable = '';
+      const match = String(conv.rawId || '').match(/-(\d+)\.\d+#/);
+      if (match) stable = match[1];
+      if (!stable) stable = crypto.createHash('md5').update(conv.rawId || conv.name).digest('hex').slice(0, 12);
+      const convId = `tb:${stable}`;
+      const ctx = { convId, partner: conv.name || result.partner,
+                    avatar: result.avatar || conv.avatar || '', lastDate: '', lastTs: 0 };
+      const messages = rawMessages.map((m) => toViewerMessage(m, ctx));
+      messages.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+      const item = {
+        id: convId,
+        name: conv.name || result.partner,
+        avatar: result.avatar || conv.avatar || '',
+        isGroup: false,
+        count: messages.length,
+        messages,
+      };
+      const merged = mergeConv(convs, item);
+      log(`  [+] 已合并进「${merged.name}」，当前该会话共 ${merged.count} 条消息`);
+    } catch (err) {
+      log(`  [!] 导出失败：${err.message || err}`);
+    }
+  }
+}
+
 async function exportChats() {
   let urls = [...OPT.urls];
   if (OPT.input) {
@@ -426,14 +599,21 @@ async function exportChats() {
     }
   }
   urls = [...new Set(urls.map((u) => String(u || '').trim()).filter(Boolean))];
-  if (!urls.length) urls = [CHAT_ENTRY];
+  const auto = OPT.auto || !urls.length;
 
-  log(`[*] 共 ${urls.length} 个聊天链接，开始导出${OPT.mode === 'full' ? '（全量重建）' : '（增量合并）'}`);
+  log(OPT.only
+    ? `[*] 只更新会话「${OPT.only}」${OPT.mode === 'full' ? '（全量重建）' : '（增量合并）'}`
+    : auto
+      ? `[*] 自动获取账号内全部会话，开始导出${OPT.mode === 'full' ? '（全量重建）' : '（增量合并）'}`
+      : `[*] 共 ${urls.length} 个聊天链接，开始导出${OPT.mode === 'full' ? '（全量重建）' : '（增量合并）'}`);
 
   const context = await launch(OPT.headless || process.env.TAOBAO_HEADLESS === '1');
   try {
     let login = await loginCookies(context);
     if (!login.ok) {
+      if (OPT.headless || process.env.TAOBAO_HEADLESS === '1') {
+        throw new Error('无头模式下未检测到淘宝登录态，请关闭左侧「无头模式」或先点「登录淘宝」登录后再导出');
+      }
       const page0 = context.pages()[0] || await context.newPage();
       log('[*] 未检测到登录态，请在弹出的浏览器里登录淘宝…');
       await page0.goto(LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
@@ -449,7 +629,9 @@ async function exportChats() {
     const page = context.pages()[0] || await context.newPage();
     let index = 0;
 
-    for (const url of urls) {
+    if (auto) {
+      await exportAllFromList(context, page, convs);
+    } else for (const url of urls) {
       index++;
       log(`\n[${index}/${urls.length}] ${url}`);
       try {

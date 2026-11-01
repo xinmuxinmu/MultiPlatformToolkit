@@ -552,78 +552,6 @@ class Douyin(StickerMixin):
         raw = self.friend_raw_names.get(name, name)
         return self.friend_ids.get(raw, '')
 
-    def _friend_search_input(self):
-        """聊天页的会话搜索框（找不到返回 None）"""
-        js = '''
-            function pick(scope) {
-                if (!scope) return null;
-                var nodes = scope.querySelectorAll('input');
-                for (var i = 0; i < nodes.length; i++) {
-                    var el = nodes[i];
-                    var ph = (el.getAttribute('placeholder') || '') + ' ' +
-                             (el.getAttribute('aria-label') || '');
-                    var cls = (el.className || '') + '';
-                    if (el.type === 'search' || /搜索|search/i.test(ph) || /search/i.test(cls)) {
-                        var rect = el.getBoundingClientRect();
-                        if (rect.width > 0 && rect.height > 0) return el;
-                    }
-                }
-                return null;
-            }
-            // 优先在左侧会话栏里找，避免误用右侧聊天区的“搜索聊天记录”
-            var wrapper = document.querySelector('[class*="conversationConversationListwrapper"]');
-            var root = wrapper;
-            for (var up = 0; up < 3 && root; up++) {
-                var hit = pick(root);
-                if (hit) return hit;
-                root = root.parentElement;
-            }
-            return null;
-        '''
-        try:
-            self.driver.set_script_timeout(10)
-            return self.driver.execute_script(js)
-        except Exception:
-            return None
-
-    def _clear_friend_search(self):
-        """清空搜索框，恢复完整会话列表"""
-        inp = self._friend_search_input()
-        if not inp:
-            return
-        try:
-            inp.click()
-            inp.send_keys(Keys.CONTROL, 'a')
-            inp.send_keys(Keys.BACKSPACE)
-            time.sleep(0.35)
-        except Exception:
-            pass
-
-    def _search_friend_row(self, name, target_id=''):
-        """用会话搜索框直接筛出目标，避免从上到下遍历整个虚拟列表。
-
-        返回行数据；搜索框不存在或没搜到时返回 None（调用方回退到滚动查找）。
-        """
-        inp = self._friend_search_input()
-        if not inp:
-            return None
-        try:
-            inp.click()
-            inp.send_keys(Keys.CONTROL, 'a')
-            inp.send_keys(Keys.BACKSPACE)
-            inp.send_keys(name)
-        except Exception:
-            return None
-        deadline = time.time() + 4
-        while time.time() < deadline:
-            rows = self._collect_rows()
-            hit = self._pick_row(rows, name, target_id)
-            if hit:
-                return hit
-            time.sleep(0.25)
-        self._clear_friend_search()
-        return None
-
     def _locate_friend(self, name, sec_uid=''):
         """定位好友，返回行数据（含 index），失败返回 None"""
         target_id = (sec_uid or self.get_friend_id(name) or '').strip()
@@ -632,13 +560,6 @@ class Douyin(StickerMixin):
         if hit:
             self._merge_rows(rows)
             return hit
-
-        # 先搜再滚：搜索能把目标直接筛到当前视口，比逐屏遍历快得多
-        hit = self._search_friend_row(name, target_id)
-        if hit:
-            self._merge_rows([hit])
-            return hit
-
         hit = self._scroll_find_row(name, target_id)
         if hit:
             self._merge_rows([hit])
@@ -666,7 +587,6 @@ class Douyin(StickerMixin):
 
         # 已经打开的就是目标会话，直接复用（省一次点击）
         if hit.get('active') and (not target_id or row_id == target_id):
-            self._clear_friend_search()
             return True, None
 
         clicked = False
@@ -688,8 +608,6 @@ class Douyin(StickerMixin):
             return False, f'点击好友失败: {name}'
 
         time.sleep(random.uniform(1.0, 1.8))
-        # 搜索框只是临时过滤器，点开会话后清掉，后续操作仍看完整列表
-        self._clear_friend_search()
 
         current_id = self._current_conversation_id()
         if target_id and current_id and current_id != target_id:

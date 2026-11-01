@@ -21,7 +21,10 @@ const mobileLayout = window.matchMedia('(max-width: 768px)')
 const sidebarOpen = ref(!mobileLayout.matches)
 const syncSidebarLayout = () => { sidebarOpen.value = !mobileLayout.matches }
 mobileLayout.addEventListener('change', syncSidebarLayout)
-onUnmounted(() => mobileLayout.removeEventListener('change', syncSidebarLayout))
+onUnmounted(() => {
+  mobileLayout.removeEventListener('change', syncSidebarLayout)
+  window.removeEventListener('message', onGlobalUiSettings)
+})
 const searchOpen = ref(false)
 const sparkOpen = ref(window.matchMedia('(min-width: 1100px)').matches)
 const sparkFire = ref({})
@@ -239,6 +242,8 @@ window.fetch = function(url, opts = {}) {
 onMounted(() => {
   if (!isScreenshotMode) checkAuth()
   loadSparkMap()
+  loadGlobalUiSettings()
+  window.addEventListener('message', onGlobalUiSettings)
 })
 
 const themes = [
@@ -255,6 +260,27 @@ function applyTheme(id) {
   currentTheme.value = id
   document.documentElement.setAttribute('data-theme', id === 'dark' ? '' : id)
   localStorage.setItem('theme', id)
+}
+
+const GLOBAL_THEME_MAP = { dark: 'dark', light: 'light', ocean: 'ocean', purple: 'purple' }
+function applyGlobalTheme(theme) {
+  if (isScreenshotMode) return
+  applyTheme(GLOBAL_THEME_MAP[theme] || 'dark')
+}
+function onGlobalUiSettings(event) {
+  if (event.origin !== location.origin) return
+  if (event.data && event.data.type === 'mp:settings' && event.data.theme) {
+    applyGlobalTheme(event.data.theme)
+  }
+}
+async function loadGlobalUiSettings() {
+  if (isScreenshotMode) return
+  try {
+    const res = await fetch('/api/ui/settings')
+    if (!res.ok) return
+    const data = await res.json()
+    if (data.theme) applyGlobalTheme(data.theme)
+  } catch (e) { /* 独立运行时忽略 */ }
 }
 
 function selectConversation(conv) {
@@ -328,7 +354,7 @@ function navigateToMessage(item) {
         <div class="app-title">抖音聊天记录</div>
         <button v-if="workspaceView === 'messages'" class="search-toggle" :disabled="!activeConversation" :aria-expanded="searchOpen" @click="setSearchOpen(!searchOpen)">⌕ 查找聊天记录</button>
         <button v-if="workspaceView === 'messages'" class="search-toggle" :disabled="!activeConversation" :aria-expanded="sparkOpen" @click="toggleSpark">🔥 {{ sparkOpen ? '收起火花' : '火花详情' }}</button>
-        <div class="theme-switcher">
+        <div v-if="!isEmbed" class="theme-switcher">
           <button
             v-for="t in themes"
             :key="t.id"

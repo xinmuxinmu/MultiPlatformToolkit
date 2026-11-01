@@ -8,6 +8,10 @@
       <div class="msg-header" v-if="!isStatic">
         <h3>{{ conversation.name || '未命名' }}</h3>
         <span class="msg-total">{{ total }} 条消息</span>
+        <button class="msg-update" :disabled="updating" :title="updateMsg || '只增量抓取当前会话'" @click="updateConversation">
+          {{ updating ? '更新中…' : '↻ 更新聊天记录' }}
+        </button>
+        <span v-if="updateMsg" class="msg-update-status" :class="{ err: updateError }" :title="updateMsg">{{ updateMsg }}</span>
         <button v-if="!selfUid && senders.length === 2" class="msg-pick-self" @click="showPicker = true">
           设置"我"
         </button>
@@ -285,6 +289,9 @@ const emit = defineEmits(['jumped', 'staticLoaded'])
 const messages = ref([])
 const total = ref(0)
 const loading = ref(false)
+const updating = ref(false)
+const updateMsg = ref('')
+const updateError = ref(false)
 let scrollLocked = false  // 防止程序化滚动触发无限加载
 const hasOlder = ref(false)
 const hasNewer = ref(false)
@@ -579,6 +586,47 @@ async function fetchSenders(convId) {
   } catch {}
 }
 
+async function updateConversation() {
+  const conv = props.conversation
+  if (!conv || updating.value) return
+  if (!conv.name) { updateError.value = true; updateMsg.value = '缺少会话昵称'; return }
+  updating.value = true
+  updateError.value = false
+  updateMsg.value = '正在更新…'
+  try {
+    const res = await fetch('/panel/api/scrape', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conversations: [conv.name], incremental: true, persist: false }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data.error || '启动更新失败')
+
+    const deadline = Date.now() + 6 * 60 * 1000
+    let done = false
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 1500))
+      const s = await fetch('/panel/api/status').then((r) => r.json()).catch(() => ({}))
+      const job = s.scrape || {}
+      if (job.status === 'completed') {
+        updateMsg.value = '更新完成'
+        await fetchMessages(conv.conv_id)
+        done = true
+        break
+      }
+      if (job.status === 'failed') throw new Error(job.message || '更新失败')
+      if (job.status === 'idle') throw new Error('更新已停止')
+    }
+    if (!done) throw new Error('更新超时，请到导出控制台查看日志')
+  } catch (e) {
+    updateError.value = true
+    updateMsg.value = e.message || '更新失败'
+  } finally {
+    updating.value = false
+    setTimeout(() => { if (!updateError.value && updateMsg.value === '更新完成') updateMsg.value = '' }, 3000)
+  }
+}
+
 async function fetchMessages(convId, beforeSeq = null, afterSeq = null, replace = false) {
   const requestId = ++messageRequestId
   loading.value = true
@@ -860,6 +908,27 @@ watch(() => props.jumpToSeq, async (seq) => {
   font-size: 12px;
   color: var(--text-muted);
 }
+.msg-update {
+  padding: 4px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.msg-update:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.msg-update:disabled { opacity: .6; cursor: default; }
+.msg-update-status {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.msg-update-status.err { color: #ef4444; }
 
 .msg-pick-self {
   margin-left: auto;

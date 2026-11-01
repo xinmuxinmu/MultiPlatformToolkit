@@ -41,6 +41,12 @@ def _utf8_subprocess_env() -> dict:
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUNBUFFERED"] = "1"
+    try:
+        from app.ui_settings import is_headless
+        if is_headless():
+            env["HEADLESS"] = "true"
+    except Exception:
+        pass
     return env
 
 
@@ -184,6 +190,7 @@ class ScrapeRequest(BaseModel):
     incremental: bool = True
     filter: str = ""
     conversations: list[str] | None = None  # selected nicknames; overrides filter
+    persist: bool = True  # False = 临时任务，不覆盖面板里保存的会话勾选
 
 
 class VoiceBackfillRequest(BaseModel):
@@ -583,8 +590,8 @@ async def start_scrape(req: ScrapeRequest):
     elif req.filter:
         _scrape_state["message"] += f" (过滤: {req.filter})"
 
-    # Persist selection so it's remembered next time
-    if req.conversations is not None:
+    # Persist selection so it's remembered next time（查看器里的单会话更新不覆盖）
+    if req.conversations is not None and req.persist:
         cfg = _load_config()
         cfg["scraper_selected"] = list(req.conversations)
         _save_config(cfg)

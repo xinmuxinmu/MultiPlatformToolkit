@@ -330,6 +330,13 @@ def _spark_account_id() -> str:
     return active["id"] if active else ""
 
 
+@app.get("/api/ui/settings")
+def ui_settings():
+    """统一入口的全局外观设置（主题/语言/无头模式）。"""
+    from app.ui_settings import load_settings
+    return load_settings()
+
+
 @app.get("/api/spark/map")
 def spark_map():
     """会话列表用：当前账号的火花天数 + 定时任务时间。"""

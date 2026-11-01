@@ -135,6 +135,14 @@ def build_browser_options(account_id=None, force_visible=False):
     browser_path = (config.get('browser_path') or '').strip()
     # force_visible：弹出浏览器登录时即使用户开了无头模式，也强制显示窗口
     show_browser = bool(config.get('show_browser', True)) or force_visible
+    if not force_visible:
+        # 统一入口左侧的「无头模式」开关，对所有后台自动化生效；登录流程不受影响
+        try:
+            from app.ui_settings import is_headless
+            if is_headless():
+                show_browser = False
+        except Exception:
+            pass
     # 与聊天导出共用账号目录：<账号>/spark_profile（浏览器内核不同，profile 独立）
     from spark_backend import accounts as account_store
     profile_dir = account_store.spark_profile_dir(account_id or runtime.active_account_id)

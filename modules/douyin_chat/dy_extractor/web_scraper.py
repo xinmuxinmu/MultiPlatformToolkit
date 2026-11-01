@@ -458,6 +458,9 @@ class WebChatScraper:
             if attempt == 0:
                 if await self._restore_cookies_from_backup():
                     return True
+                if os.environ.get("HEADLESS", "false").lower() in ("1", "true", "yes"):
+                    print("[-] 无头模式下无法扫码登录，请关闭左侧「无头模式」或在控制面板先登录后再采集")
+                    return False
                 print("[*] 未检测到登录，请在浏览器中扫码登录... (最多 3 分钟)")
             await asyncio.sleep(1)
 
@@ -2203,6 +2206,18 @@ class WebChatScraper:
         stats["matched"] = len(mapping)
         return mapping, stats
 
+    def _existing_msg_ids(self, ids):
+        found = set()
+        ids = [mid for mid in ids if mid]
+        for start in range(0, len(ids), 400):
+            chunk = ids[start:start + 400]
+            placeholders = ",".join("?" * len(chunk))
+            rows = self._db_conn.execute(
+                f"SELECT msg_id FROM messages WHERE msg_id IN ({placeholders})", chunk
+            )
+            found.update(row[0] for row in rows)
+        return found
+
     async def _api_fetch_all_messages(self, conv_id, cursor, incremental=False):
         """用 API 直接获取全部历史消息。
 
@@ -2217,13 +2232,14 @@ class WebChatScraper:
 
         # 3. 增量模式：获取已有消息的最旧时间戳
         existing_count = 0
-        existing_oldest_ts = None
+        existing_newest_ts = None
         if incremental:
             row = self._db_conn.execute(
-                "SELECT COUNT(*), MIN(timestamp) FROM messages WHERE conv_id = ?", (conv_id,)
+                "SELECT COUNT(*), MIN(timestamp), MAX(timestamp) FROM messages WHERE conv_id = ?",
+                (conv_id,),
             ).fetchone()
             existing_count = row[0] or 0
-            existing_oldest_ts = row[1] if row[1] else None
+            existing_newest_ts = row[2] if row[2] else None
             if existing_count:
                 print(f"  [*] 增量模式: 已有 {existing_count} 条消息")
 
@@ -2234,7 +2250,8 @@ class WebChatScraper:
         batch_num = 0
         zero_saved_streak = 0  # 连续 saved=0 的批次计数
         voice_message_ids = []  # 只转写本次实际新增的语音
-        pages_per_batch = 20  # 每批获取 20 页 = 1000 条
+        # 增量更新只需要覆盖最新一段；单次取太多会把大半时间花在已存在的历史上
+        pages_per_batch = 5 if incremental else 20
         has_more = True
         start_time = time.time()
 
@@ -2447,10 +2464,13 @@ class WebChatScraper:
                     converted_message["type_code"] = m["type_code"]
                 converted.append(converted_message)
 
-            # 下载语音文件
-            await self._download_voice_files(converted)
-            # 下载图片/表情（按配置）
-            await self._download_image_files(converted)
+            # 已存在的消息不再重复下载媒体，只处理本批新增的
+            batch_ids = [self._make_msg_id(conv_id, m) for m in converted]
+            existing_ids = self._existing_msg_ids(batch_ids) if incremental else set()
+            new_messages = [m for m, mid in zip(converted, batch_ids) if mid not in existing_ids]
+            if new_messages:
+                await self._download_voice_files(new_messages)
+                await self._download_image_files(new_messages)
 
             newly_inserted, inserted_message_ids = self._store_messages(
                 converted, conv_id, batch_seq_start=0
@@ -2480,7 +2500,17 @@ class WebChatScraper:
                 f"speed={speed:.0f}msg/s elapsed={elapsed:.1f}s hasMore={has_more}"
             )
 
-            # 增量模式：连续 2 批 saved=0 说明已追上历史，停止
+            # 增量模式：已经翻到本地最新消息之前，后面不可能再有新消息，立即停止
+            if incremental and existing_count > 0 and existing_newest_ts and next_ts:
+                try:
+                    next_sec = int(next_ts) // 1_000_000
+                    if next_sec <= int(existing_newest_ts):
+                        print("  [*] 增量模式: 已追上本地最新消息，停止继续翻页")
+                        break
+                except (TypeError, ValueError):
+                    pass
+
+            # 兜底：连续 2 批 saved=0 说明已追上历史，停止
             if incremental and existing_count > 0:
                 if newly_inserted == 0:
                     zero_saved_streak += 1

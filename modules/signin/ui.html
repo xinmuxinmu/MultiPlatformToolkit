@@ -121,14 +121,27 @@ textarea::placeholder,input::placeholder{color:#b6c0cf}
 .toast.err{background:#dc2626}
 .toast.ok{background:#16a34a}
 .dirty{color:#d97706 !important;border-bottom-color:#d97706 !important}
+.signin-tabs{display:flex;gap:4px;background:var(--mp-surface3,#eef2f9);padding:4px;border-radius:10px;width:max-content;margin:0 0 18px}
+.signin-tab{border:0 !important;border-radius:8px !important;padding:8px 16px !important;background:transparent !important;
+  color:var(--mp-muted,#64748b) !important;font:600 13px/1 inherit;cursor:pointer}
+.signin-tab.active{background:var(--mp-surface,#fff) !important;color:var(--mp-accent,#2563eb) !important;
+  box-shadow:0 1px 4px rgba(16,24,40,.12)}
+.signin-tab:hover:not(.active){color:var(--mp-accent,#2563eb) !important}
+body.sky-tab #btnSave,body.sky-tab #btnAll{display:none}
+.starsky-view{height:calc(100vh - 205px);min-height:520px;border:1px solid var(--mp-border,#eef1f6);border-radius:14px;
+  overflow:hidden;background:var(--mp-bg,#f4f6fa);box-shadow:0 1px 3px rgba(16,24,40,.04)}
+.starsky-frame{width:100%;height:100%;border:0;display:block;background:transparent}
+@media(max-width:800px){.starsky-view{height:calc(100vh - 170px);min-height:420px}}
 </style>
+<link rel="stylesheet" href="/shared/mp_ui.css?v=2">
+<script src="/shared/mp_ui.js?v=2"></script>
 </head>
 <body>
 <div class="wrap">
   <header>
     <div>
       <h1><span class="dot"></span>一键签到</h1>
-      <div class="sub">微博超话 · 吾爱破解 · 百度贴吧　本地运行，Cookie 不出本机</div>
+      <div class="sub">微博超话 · 吾爱破解 · 百度贴吧 · StarSky 桌面签到　本地运行，Cookie 不出本机</div>
     </div>
     <div class="actions">
       <a class="back-home" href="/">返回首页</a>
@@ -137,23 +150,34 @@ textarea::placeholder,input::placeholder{color:#b6c0cf}
     </div>
   </header>
 
-  <div class="banner" id="staleBanner">
-    <span class="grow" id="staleText"></span>
-  </div>
+  <nav class="signin-tabs" id="signinTabs" role="tablist">
+    <button type="button" class="signin-tab active" data-tab="cookie" role="tab">微博 / 贴吧 / 吾爱</button>
+    <button type="button" class="signin-tab" data-tab="starsky" role="tab">StarSky 签到</button>
+  </nav>
 
-  <div class="grid" id="cards"></div>
-
-  <div class="panel">
-    <div class="panel-head">
-      <span>运行日志</span>
-      <span id="stat">就绪</span>
+  <div id="cookieView">
+    <div class="banner" id="staleBanner">
+      <span class="grow" id="staleText"></span>
     </div>
-    <div class="logs" id="logs"><div class="empty">点上面的按钮开始</div></div>
+
+    <div class="grid" id="cards"></div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <span>运行日志</span>
+        <span id="stat">就绪</span>
+      </div>
+      <div class="logs" id="logs"><div class="empty">点上面的按钮开始</div></div>
+    </div>
+
+    <div class="tip">
+      Cookie 存在 <code id="cfgPath">config.json</code>，只在本机读写<br>
+      Cookie 一般能用很久，失效了重新复制一次就行 · <a href="#" id="btnQuit" style="color:#94a3b8">退出程序</a>
+    </div>
   </div>
 
-  <div class="tip">
-    Cookie 存在 <code id="cfgPath">config.json</code>，只在本机读写<br>
-    Cookie 一般能用很久，失效了重新复制一次就行 · <a href="#" id="btnQuit" style="color:#94a3b8">退出程序</a>
+  <div class="starsky-view" id="starskyView" style="display:none">
+    <iframe class="starsky-frame" id="starskyFrame" title="StarSky 签到" src="about:blank"></iframe>
   </div>
 </div>
 
@@ -383,6 +407,31 @@ let since = 0, polling = null, running = false;
 const cards = document.getElementById('cards');
 const logsEl = document.getElementById('logs');
 const statEl = document.getElementById('stat');
+const skyFrame = document.getElementById('starskyFrame');
+
+function showTab(tab, updateHash){
+  tab = tab === 'starsky' ? 'starsky' : 'cookie';
+  document.querySelectorAll('.signin-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.getElementById('cookieView').style.display = tab === 'cookie' ? '' : 'none';
+  document.getElementById('starskyView').style.display = tab === 'starsky' ? '' : 'none';
+  document.body.classList.toggle('sky-tab', tab === 'starsky');
+  if (tab === 'starsky' && (!skyFrame.getAttribute('src') || skyFrame.getAttribute('src') === 'about:blank')){
+    skyFrame.src = '/starsky/?embed=1&v=' + Date.now();
+  }
+  if (updateHash){
+    try {
+      history.replaceState(null, '', location.pathname + location.search + (tab === 'starsky' ? '#starsky' : ''));
+    } catch(e) {}
+  }
+}
+document.getElementById('signinTabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('.signin-tab');
+  if (btn) showTab(btn.dataset.tab, true);
+});
+window.addEventListener('hashchange', () => {
+  showTab(location.hash === '#starsky' ? 'starsky' : 'cookie', false);
+});
+if (location.hash === '#starsky') showTab('starsky', false);
 
 // ---- 渲染卡片
 PLATFORMS.forEach(p => {

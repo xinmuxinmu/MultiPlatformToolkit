@@ -7,15 +7,9 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;
-  background:#f4f6fa;color:#1f2937;line-height:1.6;min-height:100vh;padding:28px 20px 48px}
-.wrap{max-width:1020px;margin:0 auto}
-header{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:22px}
-h1{font-size:21px;font-weight:650;letter-spacing:-.3px;display:flex;align-items:center;gap:9px}
-h1 .dot{width:9px;height:9px;border-radius:50%;background:#f97316;box-shadow:0 0 0 4px rgba(249,115,22,.15)}
+  background:#f4f6fa;color:#1f2937;line-height:1.6;min-height:100vh;padding:0}
+.wrap{max-width:1020px;margin:0 auto;padding:24px 20px 48px}
 .sub{font-size:12.5px;color:#8b95a5;margin-top:3px}
-.links{display:flex;gap:14px;font-size:13px}
-.links a{color:#2563eb;text-decoration:none;font-weight:600}
-.links a.muted{color:#64748b;font-weight:500}
 .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
 @media(max-width:820px){.grid{grid-template-columns:1fr}}
 .card{background:#fff;border:1px solid #edf0f5;border-radius:14px;padding:16px 17px;
@@ -52,22 +46,41 @@ label.chk{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:
 .log .ok{color:#86efac}
 .log .sys{color:#93c5fd}
 .empty{color:#64748b;font-style:italic}
-a.viewer{display:inline-flex;align-items:center;gap:5px}
+.view-tab{border:0;background:transparent;color:#64748b;font:600 13px/1 inherit;padding:8px 16px;border-radius:8px;cursor:pointer}
+.view-tab.active{background:#fff;color:#2563eb;box-shadow:0 1px 4px rgba(16,24,40,.12)}
+.view-records{height:calc(100vh - 132px);min-height:480px;border:1px solid #edf0f5;border-radius:14px;overflow:hidden;background:#fff;box-shadow:0 1px 3px rgba(16,24,40,.04)}
+.records-frame{width:100%;height:100%;border:0;display:block;background:#fff}
+.records-empty{display:flex;align-items:center;justify-content:center;height:100%;color:#94a3b8;font-size:13px}
 </style>
+<link rel="stylesheet" href="/shared/mp_ui.css?v=2">
+<script src="/shared/mp_ui.js?v=2"></script>
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <div>
-      <h1><span class="dot"></span>微博聊天记录导出</h1>
-      <div class="sub">私信文字、图片、语音、视频本地化，生成离线 HTML 浏览页</div>
-    </div>
-    <div class="links">
-      <a href="/weibo-chat/viewer" target="_blank" class="viewer">打开浏览页 ↗</a>
-      <a href="/" class="muted">返回首页</a>
-    </div>
-  </header>
+<header class="mp-topbar">
+  <div class="mp-brand">
+    <span class="dot"></span>
+    <div><b>微博聊天记录</b><small>私信导出 · 离线浏览</small></div>
+  </div>
+  <nav class="mp-tabs" id="viewTabs">
+    <button class="view-tab active" type="button" data-view="console">导出控制台</button>
+    <button class="view-tab" type="button" data-view="records">聊天记录</button>
+  </nav>
+  <div class="mp-spacer"></div>
+  <span class="mp-status" id="topStatus">空闲</span>
+  <div class="mp-acct">
+    <button class="mp-chip" id="acctChip" type="button" title="切换微博账号">
+      <span class="mp-ava" id="chipAva">?</span>
+      <span class="nm" id="chipName">加载中</span>
+      <span class="mp-caret">▾</span>
+    </button>
+    <div class="mp-menu" id="acctMenu"></div>
+  </div>
+  <button class="mp-login" id="btn-login" type="button">登录 / 添加账号</button>
+  <button class="mp-manage" id="btnAccounts" type="button">账号管理</button>
+</header>
 
+<div class="wrap">
+  <div id="view-console">
   <div class="grid">
     <div class="card">
       <h2>登录状态</h2>
@@ -98,7 +111,6 @@ a.viewer{display:inline-flex;align-items:center;gap:5px}
   </div>
 
   <section class="actions">
-    <button id="btn-login">登录微博</button>
     <button class="primary" id="btn-run">开始导出</button>
     <button class="danger" id="btn-stop" disabled>停止</button>
     <label class="chk"><input type="checkbox" id="full"> 全量重建（不合并旧记录）</label>
@@ -109,13 +121,48 @@ a.viewer{display:inline-flex;align-items:center;gap:5px}
     <div class="log-head"><b>运行日志</b><button class="small" id="btn-clear">清屏</button></div>
     <div class="log" id="log"><div class="empty">等待任务…</div></div>
   </section>
+  </div>
+
+  <div id="view-records" style="display:none">
+    <div class="view-records">
+      <div class="records-empty" id="recordsEmpty">还没有导出记录，先在「导出控制台」导出一次。</div>
+      <iframe id="recordsFrame" class="records-frame" style="display:none" title="微博聊天记录"></iframe>
+    </div>
+  </div>
+</div>
+
+<div class="mp-acct-modal" id="accountModal" role="dialog" aria-modal="true" aria-labelledby="accountModalTitle">
+  <div class="mp-acct-dialog">
+    <div class="mp-acct-head">
+      <div>
+        <b id="accountModalTitle">账号管理</b>
+        <div class="sub">登录态、聊天记录和导出数据都按账号隔离，切换后立即生效。</div>
+      </div>
+      <button class="mp-acct-x" id="accountsClose" type="button" title="关闭">×</button>
+    </div>
+    <div class="mp-acct-body" id="accountList"></div>
+    <div class="mp-acct-foot">
+      <button class="primary" id="accountsAdd" type="button">登录 / 添加账号</button>
+      <button id="accountsRefresh" type="button">刷新列表</button>
+      <span class="spacer"></span>
+      <span class="note">账号数据保存在本机</span>
+    </div>
+  </div>
 </div>
 
 <script>
 const $ = (s) => document.querySelector(s);
 let since = 0;
 let polling = false;
+let hasViewer = false;
+let currentView = 'console';
+let accountsList = [];
+let summaryInfo = {};
 let timer = null;
+
+if (new URLSearchParams(location.search).get('embed') === '1') {
+  document.body.classList.add('mp-embedded');
+}
 
 function fmtTs(sec) {
   if (!sec) return '—';
@@ -147,18 +194,236 @@ function toast(msg) {
   log.scrollTop = log.scrollHeight;
 }
 
+async function loadAccounts() {
+  try {
+    const d = await jget('/weibo-chat/api/accounts');
+    accountsList = d.accounts || [];
+    renderAccountChrome();
+  } catch (e) { /* 忽略 */ }
+}
+
+function accountName(a) {
+  return (a && (a.nickname || a.name || a.uid)) || '账号';
+}
+function accountSub(a) {
+  if (!a) return '';
+  const bits = [];
+  if (a.nickname && a.name) bits.push(a.name);
+  if (a.uid) bits.push('UID ' + a.uid);
+  return bits.join(' · ');
+}
+function activeAccount() {
+  return accountsList.find(a => a.active) || accountsList[0] || null;
+}
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function renderAccountChrome() {
+  const cur = activeAccount();
+  $('#chipName').textContent = accountName(cur);
+  $('#chipAva').textContent = accountName(cur).trim().charAt(0) || '?';
+  let menu = '<div class="mp-menu-head">切换微博账号</div>';
+  if (!accountsList.length) {
+    menu += '<div class="mp-menu-note">还没有账号，点击上方「登录 / 添加账号」。</div>';
+  } else {
+    for (const a of accountsList) {
+      const sub = accountSub(a) || (a.logged_in ? '已登录' : '未登录');
+      menu += '<button type="button" class="mp-menu-item" data-switch="' + esc(a.id) + '">' +
+        '<span class="mp-ava">' + esc(accountName(a).trim().charAt(0) || '?') + '</span>' +
+        '<div class="mi-main"><b>' + esc(a.name || a.nickname || '账号') +
+        (a.active ? '<span class="tag">当前</span>' : '') + '</b>' +
+        '<small>' + esc(sub) + '</small></div>' +
+        '<span class="tick">' + (a.active ? '✓' : '') + '</span></button>';
+    }
+  }
+  menu += '<div class="mp-menu-sep"></div>' +
+    '<button type="button" class="mp-menu-item" data-open-accounts>' +
+    '<span class="tick">⚙</span><div class="mi-main"><b>账号管理</b></div></button>';
+  $('#acctMenu').innerHTML = menu;
+
+  const list = $('#accountList');
+  if (!accountsList.length) {
+    list.innerHTML = '<div class="mp-acct-empty">还没有账号，点击下方「登录 / 添加账号」。</div>';
+    return;
+  }
+  list.innerHTML = accountsList.map(a => {
+    const sub = accountSub(a) || (a.logged_in ? '已登录' : '未登录');
+    return '<div class="mp-acct-row' + (a.active ? ' current' : '') + '">' +
+      '<span class="mp-ava ava">' + esc(accountName(a).trim().charAt(0) || '?') + '</span>' +
+      '<div class="info"><div class="nm">' + esc(a.name || a.nickname || '账号') +
+      (a.active ? '<span class="tag">当前</span>' : '') + '</div>' +
+      '<div class="uid">' + esc(sub) + '</div></div>' +
+      '<div class="ops">' +
+      (!a.active ? '<button type="button" data-act="switch" data-id="' + esc(a.id) + '">切换</button>' : '') +
+      '<button type="button" data-act="login" data-id="' + esc(a.id) + '">登录</button>' +
+      '<button type="button" data-act="rename" data-id="' + esc(a.id) + '">重命名</button>' +
+      '<button type="button" class="danger" data-act="delete" data-id="' + esc(a.id) + '">删除</button>' +
+      '</div></div>';
+  }).join('');
+}
+
+function toggleMenu(open) {
+  const menu = $('#acctMenu');
+  const next = open === undefined ? !menu.classList.contains('open') : open;
+  menu.classList.toggle('open', next);
+  if (next) renderAccountChrome();
+}
+function openAccountsModal() {
+  closeMenu();
+  renderAccountChrome();
+  $('#accountModal').classList.add('open');
+}
+function closeAccountsModal() {
+  $('#accountModal').classList.remove('open');
+}
+function closeMenu() {
+  $('#acctMenu').classList.remove('open');
+}
+
+async function switchAccount(id) {
+  if (!id) return;
+  closeMenu();
+  try {
+    const r = await fetch('/weibo-chat/api/accounts/switch', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || '切换失败');
+    await loadAccounts();
+    await loadSummary();
+    $('#acct-dot').textContent = '未检测';
+    $('#acct-dot').className = 'pill';
+    $('#acct-name').textContent = '—';
+    $('#acct-time').textContent = '—';
+    if (currentView === 'records') showView('records', true);
+  } catch (e) {
+    alert(e.message || '切换失败');
+    await loadAccounts();
+  }
+}
+
+async function createAccount(name) {
+  if (name === undefined) {
+    name = prompt('新账号备注名（留空自动命名）', '');
+    if (name === null) return null;
+  }
+  try {
+    const r = await fetch('/weibo-chat/api/accounts/create', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || '新建失败');
+    await loadAccounts();
+    await loadSummary();
+    return d.account || null;
+  } catch (e) {
+    alert(e.message || '新建失败');
+    return null;
+  }
+}
+
+async function renameAccount(id) {
+  const cur = accountsList.find(a => a.id === id) || activeAccount();
+  if (!cur) return;
+  const name = prompt('修改账号备注名', cur.name || '');
+  if (name === null || !name.trim()) return;
+  try {
+    const r = await fetch('/weibo-chat/api/accounts/rename', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: cur.id, name: name.trim() }),
+    });
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || '重命名失败');
+    await loadAccounts();
+  } catch (e) { alert(e.message || '重命名失败'); }
+}
+
+async function deleteAccount(id) {
+  const cur = accountsList.find(a => a.id === id) || activeAccount();
+  if (!cur) return;
+  if (!confirm('确定删除账号「' + (cur.name || cur.nickname || '') + '」？会同时删除它的登录态和导出数据，不可恢复。')) return;
+  try {
+    const r = await fetch('/weibo-chat/api/accounts/delete', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: cur.id }),
+    });
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || '删除失败');
+    await loadAccounts();
+    await loadSummary();
+    if (currentView === 'records') showView('records', true);
+  } catch (e) { alert(e.message || '删除失败'); }
+}
+
+async function loginOrAddAccount() {
+  closeMenu();
+  closeAccountsModal();
+  const cur = activeAccount();
+  const loggedIn = !!(cur && (cur.uid || cur.nickname)) || !!(summaryInfo && summaryInfo.state_exists);
+  if (loggedIn) {
+    const name = prompt('当前账号已登录。请输入新账号备注名（留空自动命名）', '');
+    if (name === null) return;
+    const created = await createAccount(name);
+    if (!created) return;
+  }
+  if (!confirm('将打开有头 Chrome 窗口显示微博二维码，请在窗口内扫码。继续？')) return;
+  startTask('/weibo-chat/api/login', '启动登录失败', true);
+}
+
+async function loginRowAccount(id) {
+  const cur = accountsList.find(a => a.id === id);
+  if (!cur) return;
+  if (!cur.active) await switchAccount(id);
+  if (!confirm('将打开有头 Chrome 窗口显示微博二维码，请在窗口内扫码。继续？')) return;
+  startTask('/weibo-chat/api/login', '启动登录失败', true);
+}
+
+async function refreshIdentity() {
+  try {
+    const r = await jget('/weibo-chat/api/account');
+    if (r && r.ok && r.logged_in) await loadAccounts();
+  } catch (e) { /* 忽略 */ }
+}
+
 async function loadSummary() {
   try {
     const d = await jget('/weibo-chat/api/summary');
     const s = d.data || {};
+    summaryInfo = s;
     $('#state-file').textContent = s.state_exists ? '已保存' : '无';
     $('#sum-conv').textContent = s.conversations != null ? `${s.conversations} 个会话` : '—';
     $('#sum-msg').textContent = s.messages != null ? `${s.messages} 条消息` : '还没有导出记录';
     $('#sum-time').textContent = fmtAny(s.exported_at);
     $('#sum-media').textContent = (s.images || 0) + (s.audio || 0) + (s.videos || 0) + ' 个';
     $('#sum-inc').textContent = s.incremental === true ? '可用' : (s.raw_mtime ? '需全量重建' : '—');
+    hasViewer = !!s.export_html;
+    if (currentView === 'records') showView('records', true);
   } catch (e) {
     toast('读取概览失败');
+  }
+}
+
+function showView(view, force) {
+  currentView = view;
+  document.querySelectorAll('.view-tab').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
+  $('#view-console').style.display = view === 'console' ? '' : 'none';
+  $('#view-records').style.display = view === 'records' ? '' : 'none';
+  if (view === 'console') { loadSummary(); return; }
+  if (view !== 'records') return;
+  const frame = $('#recordsFrame');
+  const empty = $('#recordsEmpty');
+  if (!hasViewer) {
+    empty.style.display = 'flex';
+    empty.textContent = '还没有导出记录，先在「导出控制台」导出一次。';
+    frame.style.display = 'none';
+    return;
+  }
+  empty.style.display = 'none';
+  frame.style.display = 'block';
+  if (force || !frame.src || frame.src === 'about:blank') {
+    frame.src = '/weibo-chat/viewer?v=' + Date.now();
   }
 }
 
@@ -166,7 +431,9 @@ function renderTask(t) {
   const pill = $('#task-pill');
   const running = !!t.running;
   const labels = { export: '导出中', login: '登录中', full: '全量导出中' };
-  pill.textContent = running ? (labels[t.kind] || '运行中') : (t.exit_code == null ? '空闲' : (t.exit_code === 0 ? '上次成功' : '上次失败'));
+  const label = running ? (labels[t.kind] || '运行中') : (t.exit_code == null ? '空闲' : (t.exit_code === 0 ? '上次成功' : '上次失败'));
+  pill.textContent = label;
+  $('#topStatus').textContent = label;
   pill.className = 'pill ' + (running ? 'warn' : (t.exit_code === 0 ? 'ok' : (t.exit_code == null ? '' : 'err')));
   $('#task-start').textContent = fmtTs(t.started_at);
   $('#task-code').textContent = t.exit_code == null ? '—' : t.exit_code;
@@ -194,7 +461,7 @@ function appendLogs(items) {
   if (nearBottom) log.scrollTop = log.scrollHeight;
 }
 
-async function poll() {
+async function poll(refreshAfter) {
   if (polling) return;
   polling = true;
   try {
@@ -211,16 +478,18 @@ async function poll() {
   } finally {
     polling = false;
     loadSummary();
+    loadAccounts();
+    if (refreshAfter) refreshIdentity();
   }
 }
 
-async function startTask(url, failMsg) {
+async function startTask(url, failMsg, refreshAfter) {
   try {
     const r = await jpost(url);
     if (!r.ok) { toast(r.error || failMsg); return; }
     $('#log').innerHTML = '';
     since = 0;
-    poll();
+    poll(refreshAfter);
   } catch (e) {
     toast(failMsg);
   }
@@ -241,6 +510,7 @@ $('#btn-check').addEventListener('click', async (ev) => {
       dot.textContent = '已登录';
       dot.className = 'pill ok';
       $('#acct-name').textContent = r.name || r.uid || '';
+      await loadAccounts();
     } else {
       dot.textContent = '未登录';
       dot.className = 'pill err';
@@ -254,10 +524,7 @@ $('#btn-check').addEventListener('click', async (ev) => {
   btn.textContent = '检测登录状态';
 });
 
-$('#btn-login').addEventListener('click', () => {
-  if (!confirm('将打开有头 Chrome 窗口显示微博二维码，请在窗口内扫码。继续？')) return;
-  startTask('/weibo-chat/api/login', '启动登录失败');
-});
+$('#btn-login').addEventListener('click', loginOrAddAccount);
 $('#btn-run').addEventListener('click', () => {
   const full = $('#full').checked;
   if (full && !confirm('全量重建会重新拉取所有会话（可长达数分钟），并替换已有记录，确定继续？')) return;
@@ -268,8 +535,44 @@ $('#btn-stop').addEventListener('click', async () => {
   if (!r.ok) toast(r.error);
 });
 $('#btn-clear').addEventListener('click', () => { $('#log').innerHTML = ''; });
+$('#viewTabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('.view-tab');
+  if (btn) showView(btn.dataset.view, btn.dataset.view === 'records');
+});
 
-loadSummary().then(poll);
+$('#acctChip').addEventListener('click', (e) => {
+  e.stopPropagation();
+  toggleMenu();
+});
+$('#acctMenu').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const item = e.target.closest('.mp-menu-item');
+  if (!item) return;
+  if (item.dataset.switch) switchAccount(item.dataset.switch);
+  else if (item.hasAttribute('data-open-accounts')) openAccountsModal();
+});
+document.addEventListener('click', () => closeMenu());
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { closeMenu(); closeAccountsModal(); }
+});
+$('#btnAccounts').addEventListener('click', openAccountsModal);
+$('#accountsClose').addEventListener('click', closeAccountsModal);
+$('#accountsRefresh').addEventListener('click', loadAccounts);
+$('#accountsAdd').addEventListener('click', loginOrAddAccount);
+$('#accountModal').addEventListener('click', (e) => {
+  if (e.target.id === 'accountModal') closeAccountsModal();
+});
+$('#accountList').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  const id = btn.dataset.id;
+  if (btn.dataset.act === 'switch') switchAccount(id);
+  else if (btn.dataset.act === 'login') loginRowAccount(id);
+  else if (btn.dataset.act === 'rename') renameAccount(id);
+  else if (btn.dataset.act === 'delete') deleteAccount(id);
+});
+
+loadAccounts().then(loadSummary).then(poll);
 </script>
 <script src="/back.js" defer></script>
 </body>

@@ -60,9 +60,15 @@ input.time{font:inherit;font-size:13px;border:1px solid #e2e8f0;border-radius:9p
 .log .bad{color:#fca5a5}
 .warn-box{margin-top:14px;background:#fffbeb;border:1px solid #fde68a;border-radius:12px;
   padding:11px 14px;font-size:12.5px;color:#92400e;line-height:1.7}
+body.mp-embedded{padding:14px 18px 24px}
+body.mp-embedded .wrap{max-width:none}
+body.mp-embedded header{display:none}
 </style>
+<link rel="stylesheet" href="/shared/mp_ui.css?v=2">
+<script src="/shared/mp_ui.js?v=2"></script>
 </head>
 <body>
+<script>if (new URLSearchParams(location.search).get('embed') === '1') document.body.classList.add('mp-embedded');</script>
 <div class="wrap">
   <header>
     <div>
@@ -120,13 +126,13 @@ input.time{font:inherit;font-size:13px;border:1px solid #e2e8f0;border-radius:9p
       <input class="time" id="sched-time" type="time" value="09:30">
       <button id="btn-sched">创建 / 更新任务</button>
       <button id="btn-unsched" class="danger">删除任务</button>
-      <span class="note" style="margin:0">任务以最高权限运行；创建/删除需管理员权限</span>
+      <span class="note" style="margin:0">任务以最高权限运行；创建/删除时会弹 UAC 授权</span>
     </div>
   </section>
 
   <div class="warn-box">
     签到依赖屏幕像素识别与鼠标模拟：需要 StarSky 已登录、桌面未锁屏、窗口未被遮挡；<br>
-    计划任务存在时优先通过计划任务执行；否则普通权限启动本程序会请求 UAC 提权。首次使用建议先「创建每日任务」，再点「立即签到」验证。
+    计划任务存在时优先通过计划任务执行；否则普通权限启动本程序会请求 UAC 提权。首次使用建议先「创建每日任务」（会弹 UAC 授权），再点「立即签到」验证。
   </div>
 
   <section class="log-card">
@@ -263,14 +269,27 @@ $('#btn-run').addEventListener('click', () => {
   act(jpost('/starsky/api/run'));
 });
 $('#btn-stop').addEventListener('click', () => act(jpost('/starsky/api/stop')));
+
+async function scheduleAct(btn, request) {
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '处理中…';
+  try {
+    await act(request());
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+}
+
 $('#btn-sched').addEventListener('click', () => {
   const at = $('#sched-time').value;
   if (!at) { showErr('请选择时间'); return; }
-  act(jpost('/starsky/api/schedule', { time: at }));
+  scheduleAct($('#btn-sched'), () => jpost('/starsky/api/schedule', { time: at }));
 });
 $('#btn-unsched').addEventListener('click', () => {
   if (!confirm('确定删除计划任务「StarSky自动签到」？')) return;
-  act(jpost('/starsky/api/schedule', undefined, 'DELETE'));
+  scheduleAct($('#btn-unsched'), () => jpost('/starsky/api/schedule', undefined, 'DELETE'));
 });
 $('#btn-refresh').addEventListener('click', refresh);
 

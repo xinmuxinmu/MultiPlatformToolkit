@@ -1,10 +1,12 @@
 import sys
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.paths import DATA_ROOT, DOUYIN_CHAT_HOME, ROOT, SHELL_DIR, SIGNIN_HOME
+from app.ui_settings import load_settings, save_settings
 
 sys.path.insert(0, str(ROOT / "modules" / "douyin_chat"))
 sys.path.insert(0, str(ROOT / "modules" / "spark"))
@@ -55,6 +57,21 @@ app.include_router(starsky_router)
 app.mount("/douyin-chat", douyin_chat_app)
 app.mount("/spark", spark_app)
 app.include_router(taobao_chat_router)
+app.mount("/shared", StaticFiles(directory=str(ROOT / "app" / "static")), name="shared")
+
+
+@app.get("/api/ui/settings")
+def ui_settings_get():
+    return load_settings()
+
+
+@app.post("/api/ui/settings")
+async def ui_settings_set(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    return save_settings(body or {})
 
 
 @app.get("/panel", include_in_schema=False)
@@ -73,6 +90,14 @@ def back_button_script():
 
 
 _NO_STORE = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
+
+
+@app.middleware("http")
+async def shared_no_store(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/shared/"):
+        response.headers.update(_NO_STORE)
+    return response
 
 
 @app.get("/douyin", include_in_schema=False)
