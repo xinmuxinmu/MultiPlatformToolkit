@@ -128,6 +128,7 @@ textarea::placeholder,input::placeholder{color:#b6c0cf}
   box-shadow:0 1px 4px rgba(16,24,40,.12)}
 .signin-tab:hover:not(.active){color:var(--mp-accent,#2563eb) !important}
 body.sky-tab #btnSave,body.sky-tab #btnAll{display:none}
+body.ne-tab #btnSave,body.ne-tab #btnAll{display:none}
 .starsky-view{height:calc(100vh - 205px);min-height:520px;border:1px solid var(--mp-border,#eef1f6);border-radius:14px;
   overflow:hidden;background:var(--mp-bg,#f4f6fa);box-shadow:0 1px 3px rgba(16,24,40,.04)}
 .starsky-frame{width:100%;height:100%;border:0;display:block;background:transparent}
@@ -153,6 +154,7 @@ body.sky-tab #btnSave,body.sky-tab #btnAll{display:none}
   <nav class="signin-tabs" id="signinTabs" role="tablist">
     <button type="button" class="signin-tab active" data-tab="cookie" role="tab">微博 / 贴吧 / 吾爱</button>
     <button type="button" class="signin-tab" data-tab="starsky" role="tab">StarSky 签到</button>
+    <button type="button" class="signin-tab" data-tab="netease" role="tab">网易云乐迷团</button>
   </nav>
 
   <div id="cookieView">
@@ -178,6 +180,10 @@ body.sky-tab #btnSave,body.sky-tab #btnAll{display:none}
 
   <div class="starsky-view" id="starskyView" style="display:none">
     <iframe class="starsky-frame" id="starskyFrame" title="StarSky 签到" src="about:blank"></iframe>
+  </div>
+
+  <div class="starsky-view" id="neteaseView" style="display:none">
+    <iframe class="starsky-frame" id="neteaseFrame" title="网易云乐迷团" src="about:blank"></iframe>
   </div>
 </div>
 
@@ -408,19 +414,26 @@ const cards = document.getElementById('cards');
 const logsEl = document.getElementById('logs');
 const statEl = document.getElementById('stat');
 const skyFrame = document.getElementById('starskyFrame');
+const neFrame = document.getElementById('neteaseFrame');
 
 function showTab(tab, updateHash){
-  tab = tab === 'starsky' ? 'starsky' : 'cookie';
+  if (tab !== 'starsky' && tab !== 'netease') tab = 'cookie';
   document.querySelectorAll('.signin-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   document.getElementById('cookieView').style.display = tab === 'cookie' ? '' : 'none';
   document.getElementById('starskyView').style.display = tab === 'starsky' ? '' : 'none';
+  document.getElementById('neteaseView').style.display = tab === 'netease' ? '' : 'none';
   document.body.classList.toggle('sky-tab', tab === 'starsky');
+  document.body.classList.toggle('ne-tab', tab === 'netease');
   if (tab === 'starsky' && (!skyFrame.getAttribute('src') || skyFrame.getAttribute('src') === 'about:blank')){
     skyFrame.src = '/starsky/?embed=1&v=' + Date.now();
   }
+  if (tab === 'netease' && (!neFrame.getAttribute('src') || neFrame.getAttribute('src') === 'about:blank')){
+    neFrame.src = '/netease-fans/?embed=1&v=' + Date.now();
+  }
   if (updateHash){
     try {
-      history.replaceState(null, '', location.pathname + location.search + (tab === 'starsky' ? '#starsky' : ''));
+      history.replaceState(null, '', location.pathname + location.search
+        + (tab === 'cookie' ? '' : '#' + tab));
     } catch(e) {}
   }
 }
@@ -429,9 +442,12 @@ document.getElementById('signinTabs').addEventListener('click', (e) => {
   if (btn) showTab(btn.dataset.tab, true);
 });
 window.addEventListener('hashchange', () => {
-  showTab(location.hash === '#starsky' ? 'starsky' : 'cookie', false);
+  const h = location.hash.replace('#', '');
+  showTab(h === 'starsky' || h === 'netease' ? h : 'cookie', false);
 });
-if (location.hash === '#starsky') showTab('starsky', false);
+if (location.hash === '#starsky' || location.hash === '#netease'){
+  showTab(location.hash.replace('#', ''), false);
+}
 
 // ---- 渲染卡片
 PLATFORMS.forEach(p => {
