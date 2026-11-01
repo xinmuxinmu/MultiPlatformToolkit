@@ -31,6 +31,13 @@ os.environ.setdefault("TAOBAO_CHAT_HOME", str(TAOBAO_CHAT_HOME))
 os.environ.setdefault("TAOBAO_CHAT_OUT", str(TAOBAO_CHAT_HOME / "export"))
 os.environ.setdefault("TAOBAO_CHAT_PROFILE", str(TAOBAO_CHAT_HOME / "profile"))
 
+BILI_CHAT_HOME = DATA_ROOT / "bilibili_chat"
+BILI_CHAT_HOME.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("BILI_CHAT_HOME", str(BILI_CHAT_HOME))
+os.environ.setdefault("BILI_CHAT_OUT", str(BILI_CHAT_HOME / "export"))
+os.environ.setdefault("BILI_CHAT_STATE", str(BILI_CHAT_HOME / "state.json"))
+os.environ.setdefault("BILI_CHAT_PROFILE", str(BILI_CHAT_HOME / "profile"))
+
 STARSKY_HOME = DATA_ROOT / "starsky"
 STARSKY_HOME.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("STARSKY_HOME", str(STARSKY_HOME))

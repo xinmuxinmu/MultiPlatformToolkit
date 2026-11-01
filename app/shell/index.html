@@ -173,6 +173,10 @@
         <span class="ico">💬</span>
         <span class="txt"><b data-i18n="appWeibo">微博聊天记录</b><small data-i18n="appWeiboSub">私信导出 · 离线浏览</small></span>
       </button>
+      <button class="nav-item" type="button" data-app="bili">
+        <span class="ico">📺</span>
+        <span class="txt"><b data-i18n="appBili">B站聊天记录</b><small data-i18n="appBiliSub">私信导出 · 离线浏览</small></span>
+      </button>
       <button class="nav-item" type="button" data-app="taobao">
         <span class="ico">🛒</span>
         <span class="txt"><b data-i18n="appTaobao">淘宝旺旺记录</b><small data-i18n="appTaobaoSub">买家侧聊天导出</small></span>
@@ -214,6 +218,7 @@
   var APPS = {
     douyin: { name: '抖音', url: '/douyin?embed=1' },
     weibo:  { name: '微博聊天记录', url: '/weibo-chat/?embed=1' },
+    bili:   { name: 'B站聊天记录', url: '/bili-chat/?embed=1' },
     taobao: { name: '淘宝旺旺记录', url: '/taobao/?embed=1' },
     signin: { name: '一键签到', url: '/signin/?embed=1' },
     starsky:{ name: '一键签到', url: '/signin/?embed=1#starsky' }
@@ -291,6 +296,7 @@
       brandName: '多平台工具', brandSub: '聊天记录 · 签到 · 火花',
       appDouyin: '抖音', appDouyinSub: '聊天记录 · 火花',
       appWeibo: '微博聊天记录', appWeiboSub: '私信导出 · 离线浏览',
+      appBili: 'B站聊天记录', appBiliSub: '私信导出 · 离线浏览',
       appTaobao: '淘宝旺旺记录', appTaobaoSub: '买家侧聊天导出',
       appSignin: '一键签到', appSigninSub: '微博 / 贴吧 / 吾爱 / StarSky',
       headless: '无头模式', headlessHint: '导出/初始化不弹浏览器窗口',
@@ -302,6 +308,7 @@
       brandName: 'Multi-tool', brandSub: 'Chats · Check-in · Spark',
       appDouyin: 'Douyin', appDouyinSub: 'Chats · Spark',
       appWeibo: 'Weibo Chats', appWeiboSub: 'Export · Offline viewer',
+      appBili: 'Bilibili Chats', appBiliSub: 'Export · Offline viewer',
       appTaobao: 'Taobao Chats', appTaobaoSub: 'Buyer chat export',
       appSignin: 'Daily Check-in', appSigninSub: 'Weibo / Tieba / 52pojie / StarSky',
       headless: 'Headless', headlessHint: 'Run exports/init without a browser window',

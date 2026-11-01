@@ -1,0 +1,9 @@
+{
+  "name": "bilibili-chat-export",
+  "version": "1.0.0",
+  "private": true,
+  "description": "B站私信聊天记录导出工具（playwright-core 登录 + API 导出）",
+  "dependencies": {
+    "playwright-core": "^1.40.0"
+  }
+}

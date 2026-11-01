@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.paths import DATA_ROOT, DOUYIN_CHAT_HOME, ROOT, SHELL_DIR, SIGNIN_HOME
+from app.paths import BILI_CHAT_HOME, DATA_ROOT, DOUYIN_CHAT_HOME, ROOT, SHELL_DIR, SIGNIN_HOME
 from app.ui_settings import load_settings, save_settings
 
 sys.path.insert(0, str(ROOT / "modules" / "douyin_chat"))
@@ -17,12 +17,14 @@ from modules.signin.routes import router as signin_router  # noqa: E402
 from modules.weibo_chat.routes import router as weibo_chat_router  # noqa: E402
 from modules.taobao_chat.routes import router as taobao_chat_router  # noqa: E402
 from modules.starsky.routes import router as starsky_router  # noqa: E402
+from modules.bilibili_chat.routes import router as bili_chat_router  # noqa: E402
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     DATA_ROOT.mkdir(parents=True, exist_ok=True)
     SIGNIN_HOME.mkdir(parents=True, exist_ok=True)
+    BILI_CHAT_HOME.mkdir(parents=True, exist_ok=True)
     DOUYIN_CHAT_HOME.mkdir(parents=True, exist_ok=True)
 
     # 挂载的子应用不会执行自己的 startup 钩子，这里复刻 dy_backend.main 的初始化。
@@ -57,6 +59,7 @@ app.include_router(starsky_router)
 app.mount("/douyin-chat", douyin_chat_app)
 app.mount("/spark", spark_app)
 app.include_router(taobao_chat_router)
+app.include_router(bili_chat_router)
 app.mount("/shared", StaticFiles(directory=str(ROOT / "app" / "static")), name="shared")
 
 

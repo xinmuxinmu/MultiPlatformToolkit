@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>B站聊天记录</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --orange:#fb7299; --orange-soft:#fff0f5; --bg:#f2f3f5; --panel:#fff;
+    --line:#ebedf0; --text:#1f2329; --sub:#8a919b; --self:#fb7299;
+  }
+  html,body{height:100%}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    background:var(--bg); color:var(--text); font-size:14px; overflow:hidden;
+  }
+  .app{display:flex; height:100vh; max-width:1400px; margin:0 auto; background:var(--panel); box-shadow:0 0 40px rgba(0,0,0,.06)}
+  /* ---------- sidebar ---------- */
+  .side{width:310px; flex:0 0 310px; border-right:1px solid var(--line); display:flex; flex-direction:column; background:#fafbfc}
+  .me{padding:16px 16px 12px; display:flex; align-items:center; gap:10px; border-bottom:1px solid var(--line)}
+  .me img{width:38px;height:38px;border-radius:50%;object-fit:cover;background:#eee}
+  .me .n{font-weight:600;font-size:14px}
+  .me .s{font-size:12px;color:var(--sub);margin-top:2px}
+  .search{padding:10px 12px;border-bottom:1px solid var(--line)}
+  .search input{width:100%;padding:8px 12px;border:1px solid var(--line);border-radius:18px;background:#fff;font-size:13px;outline:none;font-family:inherit}
+  .search input:focus{border-color:var(--orange);box-shadow:0 0 0 3px rgba(251,114,153,.12)}
+  .list{flex:1;overflow-y:auto;padding:6px 0}
+  .conv{display:flex;gap:10px;padding:10px 14px;cursor:pointer;align-items:center;border-left:3px solid transparent}
+  .conv:hover{background:#f2f4f6}
+  .conv.on{background:var(--orange-soft);border-left-color:var(--orange)}
+  .conv img{width:40px;height:40px;border-radius:50%;object-fit:cover;flex:0 0 40px;background:#e8eaed}
+  .conv .body{flex:1;min-width:0}
+  .conv .t{display:flex;justify-content:space-between;align-items:baseline;gap:6px}
+  .conv .nm{font-size:13.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .conv .tm{font-size:11px;color:var(--sub);flex:0 0 auto}
+  .conv .pv{font-size:12px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}
+  .tag{display:inline-block;font-size:10px;padding:1px 5px;border-radius:3px;background:#eef2f7;color:#5b7ba6;margin-left:5px;vertical-align:1px}
+  /* ---------- main ---------- */
+  .main{flex:1;display:flex;flex-direction:column;min-width:0;background:#fff}
+  .head{height:56px;flex:0 0 56px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 20px;gap:12px}
+  .head .h1{font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px;min-width:0}
+  .head .h1 span{font-size:12px;color:var(--sub);font-weight:400}
+  .btns{display:flex;gap:8px;flex:0 0 auto}
+  button{font-family:inherit;font-size:12.5px;padding:6px 12px;border-radius:6px;border:1px solid var(--line);background:#fff;color:#495057;cursor:pointer;transition:.15s}
+  button:hover{border-color:var(--orange);color:var(--orange)}
+  .msgs{flex:1;overflow-y:auto;padding:20px 24px 40px;scroll-behavior:smooth}
+  .empty{height:100%;display:flex;align-items:center;justify-content:center;color:#b6bcc4;font-size:13px}
+  .day{text-align:center;margin:18px 0 14px}
+  .day span{font-size:11.5px;color:#9aa2ac;background:#f4f5f7;padding:3px 10px;border-radius:10px}
+  .row{display:flex;gap:9px;margin-bottom:14px;align-items:flex-start}
+  .row.self{flex-direction:row-reverse}
+  .row img.av{width:34px;height:34px;border-radius:50%;object-fit:cover;flex:0 0 34px;background:#e8eaed;margin-top:2px}
+  .row .col{max-width:min(620px,68%);display:flex;flex-direction:column}
+  .row.self .col{align-items:flex-end}
+  .who{font-size:11.5px;color:#9aa2ac;margin:0 4px 4px}
+  .bub{padding:9px 13px;border-radius:10px;line-height:1.62;word-break:break-word;white-space:pre-wrap;font-size:14px;background:#f4f5f7;color:#1f2329}
+  .row.self .bub{background:var(--orange);color:#fff}
+  .bub a{color:#3b7fd4;text-decoration:none}
+  .row.self .bub a{color:#fff;text-decoration:underline}
+  .bub img.pic{max-width:230px;max-height:360px;border-radius:8px;display:block;margin-top:6px;cursor:zoom-in;background:#eee;object-fit:cover}
+  .recall{font-size:12px;color:#a8aeb6;font-style:italic;padding:6px 12px;background:#f7f8f9;border-radius:8px}
+  .res{padding:12px 20px;border-bottom:1px solid #f2f3f5;cursor:pointer}
+  .res:hover{background:#fafbfc}
+  .res .rm{font-size:11.5px;color:var(--sub);margin-bottom:4px}
+  .res .rt{font-size:13.5px;line-height:1.55}
+  .res mark{background:#ffe9b8;color:#8a5a00;padding:0 1px;border-radius:2px}
+  .lightbox{position:fixed;inset:0;background:rgba(0,0,0,.82);display:none;align-items:center;justify-content:center;z-index:99;cursor:zoom-out}
+  .lightbox.on{display:flex}
+  .lightbox img{max-width:92vw;max-height:92vh;border-radius:4px}
+  .conv-del{flex:0 0 22px;width:22px;height:22px;padding:0;border:0 !important;border-radius:50% !important;background:transparent !important;color:var(--sub) !important;font-size:16px;line-height:1;opacity:0;cursor:pointer;transition:.15s}
+  .conv:hover .conv-del{opacity:1}
+  .conv-del:hover{background:rgba(239,68,68,.14) !important;color:#ef4444 !important}
+  .modal-backdrop{position:fixed;inset:0;z-index:200;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(15,23,42,.55)}
+  .modal-backdrop.on{display:flex}
+  .modal-box{width:min(460px,100%);max-height:86vh;overflow:auto;background:var(--panel) !important;color:var(--text);border:1px solid var(--line);border-radius:16px;padding:22px 24px;box-shadow:0 24px 60px rgba(0,0,0,.35)}
+  .modal-title{font-size:16px;font-weight:650}
+  .modal-body{margin-top:12px;font-size:13.5px;line-height:1.8;word-break:break-word}
+  .modal-sub{margin-top:6px;font-size:12px;color:var(--sub);line-height:1.7}
+  .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
+  .modal-actions button{border-radius:8px;padding:8px 18px}
+  .modal-actions .danger{background:#dc2626 !important;border-color:#dc2626 !important;color:#fff !important}
+  .modal-actions .danger:hover:not(:disabled){background:#b91c1c !important;color:#fff !important}
+  .modal-actions .danger:disabled{opacity:.6}
+  ::-webkit-scrollbar{width:9px;height:9px}
+  ::-webkit-scrollbar-thumb{background:#d5d9de;border-radius:5px;border:2px solid transparent;background-clip:content-box}
+  ::-webkit-scrollbar-thumb:hover{background:#c0c6cd;background-clip:content-box;border:2px solid transparent}
+  ::-webkit-scrollbar-track{background:transparent}
+  /* 统一主题（亮 / 暗 / 海蓝 / 紫夜） */
+  :root{--side:#fafbfc;--hover:#f2f4f6;--input:#fff;--bub:#f4f5f7;--empty:#b6bcc4;--scroll:#d5d9de}
+  html[data-theme="dark"]{
+    --bg:#0b1220;--panel:#111827;--side:#0f172a;--line:#24304a;--text:#e5e7eb;--sub:#94a3b8;
+    --orange:#60a5fa;--orange-soft:rgba(59,130,246,.16);--hover:#182238;--input:#0b1220;--bub:#182238;
+    --empty:#64748b;--scroll:#334155;
+  }
+  html[data-theme="ocean"]{
+    --bg:#062a36;--panel:#083b4a;--side:#041f28;--line:#0f5266;--text:#e0f2fe;--sub:#7dd3fc;
+    --orange:#22d3ee;--orange-soft:rgba(34,211,238,.14);--hover:#0b4757;--input:#062a36;--bub:#0b4757;
+    --empty:#38bdf8;--scroll:#0f5266;
+  }
+  html[data-theme="purple"]{
+    --bg:#1b1229;--panel:#241735;--side:#160e21;--line:#3b2a4e;--text:#f3e8ff;--sub:#c4b5fd;
+    --orange:#c084fc;--orange-soft:rgba(192,132,252,.16);--hover:#2f1f46;--input:#1b1229;--bub:#2f1f46;
+    --empty:#a78bfa;--scroll:#3b2a4e;
+  }
+  .side{background:var(--side) !important}
+  .main{background:var(--panel) !important}
+  .search input{background:var(--input) !important;color:var(--text) !important}
+  .search input::placeholder{color:var(--sub)}
+  button{background:var(--panel) !important;color:var(--text) !important;border-color:var(--line) !important}
+  .conv:hover,.res:hover{background:var(--hover) !important}
+  .conv.on{background:var(--orange-soft) !important}
+  .day span{background:var(--bub) !important;color:var(--sub) !important}
+  .empty{color:var(--empty) !important}
+  .bub{background:var(--bub) !important;color:var(--text) !important}
+  .recall{background:var(--bub) !important;color:var(--sub) !important}
+  .who{color:var(--sub) !important}
+  .res .rt,.me .n,.head .h1{color:var(--text) !important}
+  .res mark{background:rgba(250,204,21,.25);color:var(--warn,#8a5a00)}
+  ::-webkit-scrollbar-thumb{background:var(--scroll) !important}
+</style>
+<link rel="stylesheet" href="/shared/mp_ui.css?v=2">
+<script src="/shared/mp_ui.js?v=2"></script>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="me">
+      <img id="meAvatar" src="" alt="">
+      <div><div class="n" id="meName">我</div><div class="s" id="meStat"></div></div>
+    </div>
+    <div class="search"><input id="q" placeholder="搜索全部聊天内容…" autocomplete="off"></div>
+    <div class="list" id="list"></div>
+  </aside>
+  <main class="main">
+    <div class="head">
+      <div class="h1" id="title">选择一个会话</div>
+      <div class="btns">
+        <button id="btnUpdate">更新本会话</button>
+        <button id="btnTxt">导出本会话</button>
+        <button id="btnAll">导出全部文本</button>
+      </div>
+    </div>
+    <div class="msgs" id="msgs"><div class="empty">← 从左侧选择一个会话查看聊天记录</div></div>
+  </main>
+</div>
+<div class="lightbox" id="lb"><img id="lbi" src="" alt=""></div>
+<div class="modal-backdrop" id="delModal" role="dialog" aria-modal="true" aria-labelledby="delTitle">
+  <div class="modal-box">
+    <div class="modal-title" id="delTitle">删除会话</div>
+    <div class="modal-body">
+      确定删除会话「<strong id="delName" data-mp-no-i18n></strong>」的所有数据？
+      <div class="modal-sub">
+        <span id="delInfo"></span>
+        <br><span>只删除本机导出记录，不影响账号里的聊天。</span>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button id="delCancel" type="button">取消</button>
+      <button id="delConfirm" class="danger" type="button">删除</button>
+    </div>
+  </div>
+</div>
+<script id="data" type="application/json">__DATA__</script>
+<script>
+const DATA = JSON.parse(document.getElementById('data').textContent);
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ME = DATA.me.uid;
+
+$('meName').textContent = DATA.me.name || '我';
+$('meStat').textContent = DATA.convs.length + ' 个会话 · ' + DATA.total.toLocaleString() + ' 条消息';
+$('meAvatar').src = DATA.me.avatar || '';
+
+function fmtTime(ts){
+  const d = new Date(ts), n = new Date();
+  const hm = String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+  const sameDay = d.toDateString() === n.toDateString();
+  if (sameDay) return hm;
+  const md = (d.getMonth()+1)+'月'+d.getDate()+'日';
+  if (d.getFullYear() === n.getFullYear()) return md+' '+hm;
+  return d.getFullYear()+'年'+md+' '+hm;
+}
+function fmtDay(ts){
+  const d = new Date(ts), n = new Date();
+  if (d.toDateString() === n.toDateString()) return '今天';
+  const y = new Date(n.getTime()-864e5);
+  if (d.toDateString() === y.toDateString()) return '昨天';
+  return d.getFullYear()+'年'+(d.getMonth()+1)+'月'+d.getDate()+'日';
+}
+function linkify(s){
+  return esc(s).replace(/(https?:\/\/[^\s<]+)/g, u => '<a href="'+u+'" target="_blank" rel="noopener">'+u+'</a>');
+}
+
+// 会话列表
+const listEl = $('list');
+DATA.convs.forEach((c, i) => {
+  const last = c.messages[c.messages.length-1];
+  const div = document.createElement('div');
+  div.className = 'conv';
+  div.dataset.i = i;
+  div.innerHTML = '<img src="'+esc(c.avatar)+'" loading="lazy" alt="">'+
+    '<div class="body"><div class="t"><span class="nm">'+esc(c.name)+(c.isGroup?'<span class="tag">群</span>':'')+'</span>'+
+    '<span class="tm">'+(last?fmtTime(last.ts):'')+'</span></div>'+
+    '<div class="pv">'+(last?esc((last.text||'').replace(/\s+/g,' ').slice(0,42)):'暂无消息')+'</div></div>';
+  div.onclick = () => openConv(i);
+  const del = document.createElement('button');
+  del.type = 'button';
+  del.className = 'conv-del';
+  del.title = '删除该会话记录';
+  del.textContent = '×';
+  del.onclick = (e) => { e.stopPropagation(); requestDelete(i); };
+  div.appendChild(del);
+  listEl.appendChild(div);
+});
+
+let cur = -1;
+let delIndex = -1;
+let deletingDel = false;
+function requestDelete(i) {
+  const c = DATA.convs[i];
+  if (!c) return;
+  delIndex = i;
+  $('delName').textContent = c.name || '未命名';
+  $('delInfo').textContent = '共 ' + (c.count || (c.messages || []).length || 0) + ' 条消息，此操作不可恢复。';
+  $('delModal').classList.add('on');
+}
+function closeDeleteModal() {
+  if (deletingDel) return;
+  $('delModal').classList.remove('on');
+  delIndex = -1;
+}
+async function confirmDelete() {
+  if (delIndex < 0 || deletingDel) return;
+  const c = DATA.convs[delIndex];
+  const key = c && (c.uid || c.name);
+  if (!key) { alert('这个会话缺少唯一 ID，无法删除'); return; }
+  deletingDel = true;
+  const btn = $('delConfirm');
+  btn.disabled = true;
+  btn.textContent = '删除中...';
+  try {
+    const r = await fetch('/bili-chat/api/records/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: key }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) throw new Error(d.error || '删除失败');
+    location.reload();
+  } catch (e) {
+    alert('删除失败：' + (e.message || e));
+  } finally {
+    deletingDel = false;
+    btn.disabled = false;
+    btn.textContent = '删除';
+  }
+}
+$('delCancel').onclick = closeDeleteModal;
+$('delConfirm').onclick = confirmDelete;
+$('delModal').addEventListener('click', (e) => { if (e.target.id === 'delModal') closeDeleteModal(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDeleteModal(); });
+function openConv(i){
+  cur = i;
+  document.querySelectorAll('.conv').forEach(e => e.classList.toggle('on', +e.dataset.i === i));
+  const c = DATA.convs[i];
+  $('title').innerHTML = esc(c.name)+(c.isGroup?' <span class="tag">群</span>':'')+' <span>'+c.count+' 条</span>';
+  const box = $('msgs');
+  if (!c.messages.length){ box.innerHTML = '<div class="empty">这个会话没有可导出的消息</div>'; return; }
+  let h = '', prevTs = 0, prevDay = '';
+  for (const m of c.messages){
+    const day = fmtDay(m.ts);
+    if (day !== prevDay){ h += '<div class="day"><span>'+day+'</span></div>'; prevDay = day; prevTs = 0; }
+    else if (m.ts - prevTs > 5*60*1000){ h += '<div class="day"><span>'+fmtTime(m.ts)+'</span></div>'; }
+    prevTs = m.ts;
+    const self = m.from === ME;
+    let inner = '';
+    if (m.recall) inner = '<div class="recall">该消息已被撤回</div>';
+    else {
+      let body = '';
+      if (m.text && m.text !== '[非文本消息]') body = linkify(m.text);
+      if (m.pics && m.pics.length){
+        body += m.pics.map(p => '<img class="pic" loading="lazy" src="'+esc(p)+'" onclick="zoom(this.src)">').join('');
+      }
+      if (!body) body = '<span style="color:#9aa2ac">[非文本消息]</span>';
+      inner = '<div class="bub">'+body+'</div>';
+    }
+    h += '<div class="row'+(self?' self':'')+'">'+
+      (self?'':'<img class="av" src="'+esc(m.avatar)+'" loading="lazy" alt="">')+
+      '<div class="col">'+(self?'':'<div class="who">'+esc(m.fromName||'')+'</div>')+inner+'</div></div>';
+  }
+  box.innerHTML = h;
+  box.scrollTop = box.scrollHeight;
+}
+
+function zoom(src){ $('lbi').src = src; $('lb').classList.add('on'); }
+$('lb').onclick = () => $('lb').classList.remove('on');
+
+// 搜索
+let timer;
+$('q').oninput = (e) => {
+  clearTimeout(timer);
+  const q = e.target.value.trim();
+  timer = setTimeout(() => q ? doSearch(q) : (cur >= 0 ? openConv(cur) : $('msgs').innerHTML = '<div class="empty">← 从左侧选择一个会话查看聊天记录</div>'), 200);
+};
+function doSearch(q){
+  const lq = q.toLowerCase();
+  const hits = [];
+  for (let ci = 0; ci < DATA.convs.length && hits.length < 300; ci++){
+    const c = DATA.convs[ci];
+    for (const m of c.messages){
+      if ((m.text||'').toLowerCase().includes(lq)){ hits.push({ci, m, c}); if (hits.length >= 300) break; }
+    }
+  }
+  $('title').innerHTML = '搜索 “'+esc(q)+'” <span>'+hits.length+' 条结果</span>';
+  if (!hits.length){ $('msgs').innerHTML = '<div class="empty">没有找到匹配的消息</div>'; return; }
+  const box = $('msgs');
+  box.innerHTML = hits.map((h, k) => {
+    const t = esc(h.m.text);
+    const idx = t.toLowerCase().indexOf(esc(q).toLowerCase());
+    const marked = idx >= 0 ? t.slice(0,idx)+'<mark>'+t.slice(idx,idx+esc(q).length)+'</mark>'+t.slice(idx+esc(q).length) : t;
+    return '<div class="res" data-k="'+k+'"><div class="rm">'+esc(h.c.name)+' · '+fmtTime(h.m.ts)+'</div><div class="rt">'+marked+'</div></div>';
+  }).join('');
+  box.querySelectorAll('.res').forEach(el => {
+    el.onclick = () => { openConv(hits[+el.dataset.k].ci); };
+  });
+  box.scrollTop = 0;
+}
+
+// 导出
+function download(name, text){
+  const blob = new Blob([text], {type:'text/plain;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+}
+function convToText(c){
+  let out = '=== ' + c.name + (c.isGroup?'（群聊）':'') + ' ===\n共 ' + c.count + ' 条消息\n\n';
+  let prevDay = '';
+  for (const m of c.messages){
+    const day = fmtDay(m.ts);
+    if (day !== prevDay){ out += '\n---------- ' + day + ' ----------\n'; prevDay = day; }
+    const who = m.from === ME ? '我' : (m.fromName || c.name);
+    out += '[' + fmtTime(m.ts) + '] ' + who + '：' + (m.recall ? '[消息已撤回]' : (m.text || '[非文本消息]')) + '\n';
+  }
+  return out;
+}
+let updating = false;
+async function updateConv() {
+  if (cur < 0) return alert('请先选择一个会话');
+  const c = DATA.convs[cur];
+  if (!c || !c.uid) return alert('这个会话没有可用的用户 ID，无法更新');
+  if (updating) return;
+  updating = true;
+  const btn = $('btnUpdate');
+  btn.disabled = true;
+  btn.textContent = '更新中…';
+  try {
+    const r = await fetch('/bili-chat/api/run?mode=incremental&only_uid=' + encodeURIComponent(c.uid), { method: 'POST' });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || '启动更新失败');
+    const deadline = Date.now() + 10 * 60 * 1000;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const t = await fetch('/bili-chat/api/task').then((x) => x.json()).catch(() => ({}));
+      if (!t.running) {
+        if (t.exit_code === 0) { location.reload(); return; }
+        throw new Error('更新失败，请查看导出控制台日志');
+      }
+    }
+    throw new Error('更新超时');
+  } catch (e) {
+    alert(e.message || '更新失败');
+    btn.disabled = false;
+    btn.textContent = '更新本会话';
+    updating = false;
+  }
+}
+$('btnUpdate').onclick = updateConv;
+
+$('btnTxt').onclick = () => { if (cur < 0) return alert('请先选择一个会话'); download(DATA.convs[cur].name + '.txt', convToText(DATA.convs[cur])); };
+$('btnAll').onclick = () => {
+  let out = 'B站聊天记录备份\n账号：' + DATA.me.name + '\n导出时间：' + new Date(DATA.exportedAt).toLocaleString() + '\n共 ' + DATA.convs.length + ' 个会话，' + DATA.total + ' 条消息\n';
+  for (const c of DATA.convs){ if (c.count) out += '\n\n' + convToText(c); }
+  download('B站聊天记录_全部.txt', out);
+};
+</script>
+</body>
+</html>
