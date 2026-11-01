@@ -19,6 +19,8 @@ from modules.taobao_chat.routes import router as taobao_chat_router  # noqa: E40
 from modules.starsky.routes import router as starsky_router  # noqa: E402
 from modules.bilibili_chat.routes import router as bili_chat_router  # noqa: E402
 from modules.netease_fans.routes import router as netease_fans_router  # noqa: E402
+from modules.heybox.routes import router as heybox_router  # noqa: E402
+from modules.kugou.routes import router as kugou_router  # noqa: E402
 
 
 @asynccontextmanager
@@ -56,6 +58,8 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="多平台聊天记录导出及签到续火花", lifespan=lifespan)
 app.include_router(signin_router)
 app.include_router(netease_fans_router)
+app.include_router(heybox_router)
+app.include_router(kugou_router)
 app.include_router(weibo_chat_router)
 app.include_router(starsky_router)
 app.mount("/douyin-chat", douyin_chat_app)

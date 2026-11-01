@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>小黑盒 · 每日任务</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;
+  background:#f4f6fa;color:#1f2937;line-height:1.6;padding:28px 20px 40px;min-height:100vh}
+body.embed{background:#fff;padding:0}
+.wrap{max-width:1060px;margin:0 auto}
+header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:12px}
+h1{font-size:22px;font-weight:650;letter-spacing:-.3px;display:flex;align-items:center;gap:10px}
+h1 .dot{width:9px;height:9px;border-radius:50%;background:#111827;box-shadow:0 0 0 4px rgba(17,24,39,.12)}
+.sub{font-size:13px;color:#8b95a5;margin-top:2px}
+.actions{display:flex;gap:10px;align-items:center}
+button{font-family:inherit;font-size:14px;border:0;border-radius:10px;cursor:pointer;
+  padding:10px 20px;font-weight:600;transition:.18s}
+button:disabled{opacity:.5;cursor:not-allowed}
+.btn-main{background:#111827;color:#fff;box-shadow:0 2px 8px rgba(17,24,39,.2)}
+.btn-main:hover:not(:disabled){background:#000;transform:translateY(-1px)}
+.btn-ghost{background:#fff;color:#475569;border:1px solid #e2e8f0}
+.btn-ghost:hover:not(:disabled){background:#f8fafc;border-color:#cbd5e1}
+.btn-sm{padding:6px 14px;font-size:12.5px;border-radius:8px}
+.tabs{display:flex;gap:4px;background:#eef2f9;padding:4px;border-radius:10px;width:max-content;margin-bottom:18px}
+.tab{border:0;border-radius:8px;padding:8px 16px;background:transparent;color:#64748b;
+  font-size:13px;font-weight:600;cursor:pointer;box-shadow:none}
+.tab.active{background:#fff;color:#111827;box-shadow:0 1px 3px rgba(16,24,40,.08)}
+.card{background:#fff;border-radius:14px;padding:20px;border:1px solid #eef1f6;
+  box-shadow:0 1px 3px rgba(16,24,40,.04);margin-bottom:14px}
+.panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.panel-head .t{font-size:15px;font-weight:650}
+.panel-head .s{font-size:12px;color:#94a3b8}
+.hero{display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+.avatar{width:60px;height:60px;border-radius:16px;object-fit:cover;background:#f1f5f9;flex:none}
+.avatar-fb{width:60px;height:60px;border-radius:16px;background:#f3f4f6;color:#374151;
+  display:grid;place-items:center;font-size:20px;font-weight:650;flex:none}
+.metric{flex:1;min-width:260px}
+.gname{font-size:17px;font-weight:650;letter-spacing:-.2px}
+.gmeta{font-size:12.5px;color:#94a3b8;margin-top:3px}
+.stats{display:flex;gap:22px;margin-top:14px;flex-wrap:wrap}
+.stat .v{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.3px}
+.stat .k{font-size:11.5px;color:#94a3b8;margin-top:1px}
+.mission{display:flex;align-items:center;gap:14px;padding:13px 0;border-bottom:1px solid #f1f5f9}
+.mission:last-child{border-bottom:0;padding-bottom:0}
+.mission:first-child{padding-top:0}
+.m-body{flex:1;min-width:0}
+.m-title{font-size:14px;font-weight:600}
+.badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;
+  background:#f1f5f9;color:#94a3b8;white-space:nowrap}
+.badge.ok{background:#e8f9ef;color:#16a34a}
+.badge.wait{background:#eff6ff;color:#2563eb}
+.field{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid #f5f7fa}
+.field:last-child{border-bottom:0}
+.field > label:not(.switch){width:130px;flex:none;font-size:13px;color:#475569;font-weight:600}
+.field .grow{flex:1}
+textarea,input[type=text],input[type=number]{
+  width:100%;border:1px solid #e2e8f0;border-radius:9px;padding:9px 11px;
+  font-size:12.5px;font-family:inherit;color:#334155;background:#fbfcfe;
+  outline:none;transition:.15s;line-height:1.5}
+textarea{resize:vertical;min-height:56px}
+input[type=text],input[type=number]{font-family:ui-monospace,Consolas,monospace}
+input[type=number].grow{max-width:140px}
+input:focus,textarea:focus{border-color:#c7cdd6;background:#fff;box-shadow:0 0 0 3px rgba(17,24,39,.06)}
+::placeholder{color:#b6c0cf}
+.note{font-size:12px;color:#94a3b8;line-height:1.7;margin-top:6px}
+.switch{position:relative;display:inline-block;width:40px;height:22px;flex:none}
+.switch input{opacity:0;width:0;height:0}
+.switch span{position:absolute;inset:0;background:#d7dde6;border-radius:99px;cursor:pointer;transition:.2s}
+.switch span:before{content:"";position:absolute;width:16px;height:16px;left:3px;top:3px;
+  background:#fff;border-radius:50%;transition:.2s;box-shadow:0 1px 2px rgba(16,24,40,.2)}
+.switch input:checked + span{background:#111827}
+.switch input:checked + span:before{transform:translateX(18px)}
+.logs{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;max-height:280px;overflow-y:auto;line-height:1.85}
+.line{display:flex;gap:8px}
+.line .tm{color:#cbd5e1;flex:none;font-variant-numeric:tabular-nums}
+.line.error{color:#dc2626}
+.line.success{color:#16a34a}
+.line.warn{color:#b45309}
+.line.finish{color:#111827;font-weight:600}
+.empty{color:#cbd5e1;font-size:13px;text-align:center;padding:24px 0}
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);
+  background:#1f2937;color:#fff;font-size:13px;padding:10px 18px;border-radius:10px;
+  opacity:0;pointer-events:none;transition:.25s;z-index:99}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.err{background:#b91c1c}.toast.ok{background:#15803d}
+.hide{display:none !important}
+.modal{position:fixed;inset:0;background:rgba(15,23,42,.45);display:none;
+  align-items:center;justify-content:center;z-index:100;padding:20px}
+.modal.show{display:flex}
+.modal-box{background:#fff;border-radius:16px;padding:22px;max-width:440px;width:100%;
+  max-height:92vh;overflow:auto;box-shadow:0 12px 40px rgba(16,24,40,.18)}
+.modal-box h3{font-size:16px;font-weight:650;margin-bottom:8px}
+.modal-box .msg{font-size:13px;color:#64748b;min-height:22px}
+.modal-box ol{font-size:12.5px;color:#475569;line-height:1.9;margin:12px 0 0 18px}
+.modal-foot{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+@media(max-width:720px){
+  .field > label:not(.switch){width:100%}
+  .field{flex-wrap:wrap;align-items:flex-start}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1><span class="dot"></span>小黑盒</h1>
+      <div class="sub">每日签到与分享任务　Cookie 只存在本机</div>
+    </div>
+    <div class="actions">
+      <button class="btn-ghost" id="btnRefresh">刷新状态</button>
+      <button class="btn-main" id="btnSave">保存</button>
+      <button class="btn-main" id="btnRun">执行任务</button>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="overview">概览</button>
+    <button class="tab" data-tab="settings">设置</button>
+  </nav>
+
+  <div id="viewOverview">
+    <div class="card">
+      <div class="empty" id="heroEmpty">还没有数据，先在「设置」里登录或填 Cookie，然后点「刷新状态」</div>
+      <div class="hero hide" id="heroBody">
+        <div id="avatarBox"></div>
+        <div class="metric">
+          <div class="gname" id="uName">—</div>
+          <div class="gmeta" id="uMeta">—</div>
+          <div class="stats">
+            <div class="stat"><div class="v" id="sExp">—</div><div class="k">经验</div></div>
+            <div class="stat"><div class="v" id="sCoin">—</div><div class="k">盒币</div></div>
+            <div class="stat"><div class="v" id="sLevel">—</div><div class="k">等级</div></div>
+            <div class="stat"><div class="v" id="sSign">—</div><div class="k">今日签到</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="panel-head">
+        <span class="t">每日任务</span>
+        <span class="s" id="missionSummary">—</span>
+      </div>
+      <div id="missionList"><div class="empty">暂无任务数据</div></div>
+    </div>
+
+    <div class="card">
+      <div class="panel-head">
+        <span class="t">运行日志</span>
+        <span class="s" id="logStat">就绪</span>
+      </div>
+      <div class="logs" id="logs"><div class="empty">点右上角「执行任务」开始</div></div>
+    </div>
+  </div>
+
+  <div id="viewSettings" class="hide">
+    <div class="card">
+      <div class="panel-head">
+        <span class="t">账号</span>
+        <button class="btn-main btn-sm" id="btnLogin">快捷登录</button>
+      </div>
+      <textarea id="cookie" placeholder="登录 xiaoheihe.cn 后 F12 → Network → 任一请求的 Cookie 整行粘进来" spellcheck="false" style="height:88px"></textarea>
+      <div class="field" style="margin-top:12px">
+        <label>盒友 ID</label>
+        <input type="text" class="grow" id="heybox_id" placeholder="纯数字，登录后多数能从 Cookie 自动读出">
+      </div>
+      <div class="note">
+        Cookie 里要有 <b>pkey</b>。设备指纹 <code id="devId">—</code> 会自动生成并固定，别每次换。
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="panel-head">
+        <span class="t">任务开关</span>
+        <span class="s">关掉的不会执行</span>
+      </div>
+      <div class="field">
+        <label>每日签到</label>
+        <input type="text" class="grow" value="签到 + 领取奖励" disabled
+               style="border:0;background:transparent;color:#94a3b8;padding-left:0">
+        <label class="switch"><input type="checkbox" id="sign_enable"><span></span></label>
+      </div>
+      <div class="field">
+        <label>分享类任务</label>
+        <input type="text" class="grow" value="总开关，下面三项单独控制" disabled
+               style="border:0;background:transparent;color:#94a3b8;padding-left:0">
+        <label class="switch"><input type="checkbox" id="share_enable"><span></span></label>
+      </div>
+      <div class="field">
+        <label>分享帖子</label>
+        <input type="text" class="grow" value="拉社区流取一条帖子" disabled
+               style="border:0;background:transparent;color:#94a3b8;padding-left:0">
+        <label class="switch"><input type="checkbox" id="share_post"><span></span></label>
+      </div>
+      <div class="field">
+        <label>分享游戏详情</label>
+        <input type="text" class="grow" value="从推荐里取一个游戏" disabled
+               style="border:0;background:transparent;color:#94a3b8;padding-left:0">
+        <label class="switch"><input type="checkbox" id="share_game"><span></span></label>
+      </div>
+      <div class="field">
+        <label>分享游戏评价</label>
+        <input type="text" class="grow" value="取一条别人的评价分享" disabled
+               style="border:0;background:transparent;color:#94a3b8;padding-left:0">
+        <label class="switch"><input type="checkbox" id="share_comment"><span></span></label>
+      </div>
+      <div class="note">
+        分享任务只是把「已分享」这个动作上报给服务端，不会真的发到你绑定的社交账号里。
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="panel-head">
+        <span class="t">节奏</span>
+        <span class="s">间隔越短越像脚本</span>
+      </div>
+      <div class="field">
+        <label>间隔（秒）</label>
+        <input type="number" class="grow" id="gap_min" min="1" step="0.5">
+        <span style="color:#94a3b8;font-size:13px">到</span>
+        <input type="number" class="grow" id="gap_max" min="1" step="0.5">
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div class="modal" id="loginModal">
+  <div class="modal-box">
+    <h3>小黑盒 · 快捷登录</h3>
+    <div class="msg" id="loginMsg">正在打开登录页…</div>
+    <div style="text-align:center;margin:14px 0">
+      <img id="loginShot" alt="登录页面" style="display:none;max-width:100%;
+           border:1px solid #e2e8f0;border-radius:12px">
+    </div>
+    <ol>
+      <li>等浏览器窗口弹出登录页（第一次会新开一个窗口）</li>
+      <li>扫码或输账号密码登进去，登完不用关窗口</li>
+      <li>程序读到 Cookie 会自动验证并保存，这页会自动关掉</li>
+    </ol>
+    <div class="modal-foot">
+      <button class="btn-ghost btn-sm" id="loginClose">关闭</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '/heybox/api';
+const EMBED = /[?&]embed=1/.test(location.search);
+if (EMBED) document.body.classList.add('embed');
+
+const TEXT_IDS = ['cookie', 'heybox_id'];
+const NUM_IDS = ['gap_min', 'gap_max'];
+const BOOL_IDS = ['sign_enable', 'share_enable', 'share_post', 'share_game', 'share_comment'];
+
+let state = {config: {}};
+let since = 0, polling = null, running = false;
+
+const $ = id => document.getElementById(id);
+
+function esc(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function toast(msg, kind){
+  const el = $('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (kind ? ' ' + kind : '');
+  setTimeout(() => { el.className = 'toast' + (kind ? ' ' + kind : ''); }, 2400);
+}
+
+function setTab(name){
+  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x.dataset.tab === name));
+  $('viewOverview').classList.toggle('hide', name !== 'overview');
+  $('viewSettings').classList.toggle('hide', name !== 'settings');
+  try { history.replaceState(null, '', location.pathname + location.search + '#' + name); } catch(e) {}
+}
+document.querySelectorAll('.tab').forEach(b => { b.onclick = () => setTab(b.dataset.tab); });
+setTab((location.hash || '').replace('#', '') === 'settings' ? 'settings' : 'overview');
+
+function fillForm(cfg){
+  TEXT_IDS.forEach(k => { if ($(k)) $(k).value = cfg[k] == null ? '' : cfg[k]; });
+  NUM_IDS.forEach(k => { if ($(k)) $(k).value = cfg[k] == null ? '' : cfg[k]; });
+  BOOL_IDS.forEach(k => { if ($(k)) $(k).checked = !!cfg[k]; });
+  $('devId').textContent = cfg.device_id || '—';
+}
+
+function renderHero(s){
+  if (!s || (!s.nickname && s.coin == null)){ $('heroBody').classList.add('hide'); return; }
+  $('heroEmpty').classList.add('hide');
+  $('heroBody').classList.remove('hide');
+  const box = $('avatarBox');
+  if (s.avatar) box.innerHTML = `<img class="avatar" alt="" src="${esc(s.avatar)}" referrerpolicy="no-referrer">`;
+  else box.innerHTML = `<div class="avatar-fb">${esc((s.nickname || '?').slice(0,1))}</div>`;
+  $('uName').textContent = s.nickname || '—';
+  $('uMeta').textContent = s.userid ? 'ID ' + s.userid : '';
+  $('sExp').textContent = s.exp == null ? '—' : s.exp;
+  $('sCoin').textContent = s.coin == null ? '—' : s.coin;
+  $('sLevel').textContent = s.level == null ? '—' : 'Lv.' + s.level;
+  const signEl = $('sSign');
+  signEl.textContent = s.signed ? '已签' : '未签';
+  signEl.style.color = s.signed ? '#16a34a' : '#b45309';
+}
+
+const SHARE_NAMES = {'1': '分享帖子', '19': '分享游戏', '31': '分享游戏评价'};
+
+function renderMissions(list){
+  const el = $('missionList');
+  if (!list || !list.length){
+    el.innerHTML = '<div class="empty">暂无任务数据</div>';
+    $('missionSummary').textContent = '—';
+    return;
+  }
+  let done = 0;
+  el.innerHTML = list.map(m => {
+    if (m.done) done++;
+    const name = SHARE_NAMES[m.id] || m.title || ('任务 ' + m.id);
+    const cls = m.done ? 'badge ok' : 'badge wait';
+    const txt = m.done ? '已完成' : (m.state === 'waiting' ? '未开始' : (m.state || '未开始'));
+    return `<div class="mission">
+      <div class="m-body"><div class="m-title">${esc(name)}</div></div>
+      <span class="${cls}">${esc(txt)}</span>
+    </div>`;
+  }).join('');
+  $('missionSummary').textContent = `${done}/${list.length} 已完成`;
+}
+
+function applyState(s){
+  if (!s) return;
+  renderHero(s);
+  renderMissions(s.tasks || []);
+}
+
+function collectForm(){
+  const out = {};
+  TEXT_IDS.forEach(k => { if ($(k)) out[k] = $(k).value.trim(); });
+  NUM_IDS.forEach(k => { if ($(k)) out[k] = parseFloat($(k).value) || 0; });
+  BOOL_IDS.forEach(k => { if ($(k)) out[k] = $(k).checked; });
+  return out;
+}
+
+async function saveAll(silent){
+  const body = collectForm();
+  try{
+    const r = await fetch(API + '/save', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || '保存失败');
+    state.config = Object.assign(state.config || {}, body);
+    if (!silent) toast('已保存', 'ok');
+    return true;
+  }catch(e){
+    toast(e.message || '保存失败', 'err');
+    return false;
+  }
+}
+
+async function refresh(){
+  const btn = $('btnRefresh');
+  btn.disabled = true;
+  btn.textContent = '刷新中…';
+  try{
+    await saveAll(true);
+    const r = await fetch(API + '/refresh', {method: 'POST'});
+    const d = await r.json();
+    if (!d.ok){ toast(d.error || '刷新失败', 'err'); return; }
+    applyState(d.state);
+    toast('已更新', 'ok');
+  }catch(e){
+    toast('刷新失败：程序可能已经退出', 'err');
+  }finally{
+    btn.disabled = false;
+    btn.textContent = '刷新状态';
+  }
+}
+
+function addLogs(items){
+  if (!items.length) return;
+  const box = $('logs');
+  if (box.querySelector('.empty')) box.innerHTML = '';
+  items.forEach(x => {
+    const div = document.createElement('div');
+    div.className = 'line ' + (x.l || '');
+    div.innerHTML = `<span class="tm">${esc(x.t)}</span><span>${esc(x.m)}</span>`;
+    box.appendChild(div);
+    since = Math.max(since, x.id || 0);
+  });
+  box.scrollTop = box.scrollHeight;
+}
+
+async function poll(){
+  if (!running) return;
+  try{
+    const r = await fetch(API + '/logs?since=' + since);
+    const d = await r.json();
+    addLogs(d.logs || []);
+    running = d.running;
+    $('logStat').textContent = d.running ? '运行中…' : '已结束';
+    if (!d.running){
+      $('btnRun').disabled = false;
+      $('btnRun').textContent = '执行任务';
+      clearInterval(polling); polling = null;
+      setTimeout(refresh, 600);
+    }
+  }catch(e){ /* 下一轮再试 */ }
+}
+
+async function run(){
+  const ok = await saveAll(true);
+  if (!ok) return;
+  since = 0;
+  $('logs').innerHTML = '<div class="empty">正在启动…</div>';
+  $('btnRun').disabled = true;
+  $('btnRun').textContent = '执行中…';
+  try{
+    const r = await fetch(API + '/run', {method: 'POST'});
+    const d = await r.json();
+    if (!d.ok){
+      toast(d.error || '启动失败', 'err');
+      $('btnRun').disabled = false;
+      $('btnRun').textContent = '执行任务';
+      return;
+    }
+    running = true;
+    $('logStat').textContent = '运行中…';
+    if (!polling) polling = setInterval(poll, 900);
+  }catch(e){
+    toast('启动失败：程序可能已经退出', 'err');
+    $('btnRun').disabled = false;
+    $('btnRun').textContent = '执行任务';
+  }
+}
+
+let loginTimer = null;
+function loginStop(){ if (loginTimer){ clearInterval(loginTimer); loginTimer = null; } }
+function closeLogin(){ loginStop(); $('loginModal').classList.remove('show'); }
+async function openLogin(){
+  closeLogin();
+  $('loginMsg').textContent = '正在打开登录页…';
+  $('loginShot').style.display = 'none';
+  $('loginModal').classList.add('show');
+  try{
+    await fetch(API + '/login', {method: 'POST'});
+  }catch(e){
+    $('loginMsg').textContent = '打不开登录流程：程序可能已经退出了';
+    return;
+  }
+  const step = async () => {
+    let d;
+    try{
+      const r = await fetch(API + '/login-status');
+      d = await r.json();
+    }catch(e){ return; }
+    if (d.msg) $('loginMsg').textContent = d.msg;
+    if (d.qr){
+      const img = $('loginShot');
+      if (img.getAttribute('src') !== d.qr) img.setAttribute('src', d.qr);
+      img.style.display = '';
+    }
+    if (d.stage === 'success'){
+      loginStop();
+      if (d.cookie){
+        $('cookie').value = d.cookie;
+        state.config = state.config || {};
+        state.config.cookie = d.cookie;
+        await saveAll(true);
+      }
+      toast('登录成功，Cookie 已保存', 'ok');
+      setTimeout(closeLogin, 1200);
+      setTimeout(refresh, 1500);
+    } else if (d.stage === 'error'){
+      loginStop();
+    }
+  };
+  step();
+  loginTimer = setInterval(step, 1500);
+}
+
+$('btnLogin').onclick = openLogin;
+$('loginClose').onclick = closeLogin;
+$('loginModal').onclick = e => { if (e.target.id === 'loginModal') closeLogin(); };
+$('btnSave').onclick = () => saveAll(false);
+$('btnRefresh').onclick = refresh;
+$('btnRun').onclick = run;
+
+(async () => {
+  try{
+    const r = await fetch(API + '/state');
+    const d = await r.json();
+    state = d;
+    fillForm(d.config || {});
+    applyState(d.cached);
+  }catch(e){
+    toast('读不到配置，程序可能还没起来', 'err');
+  }
+})();
+</script>
+</body>
+</html>

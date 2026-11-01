@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>酷狗音乐 · 每日领 VIP</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;
+  background:#f4f7fb;color:#1f2937;line-height:1.6;padding:28px 20px 40px;min-height:100vh}
+body.embed{background:#fff;padding:0}
+.wrap{max-width:1060px;margin:0 auto}
+header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:12px}
+h1{font-size:22px;font-weight:650;letter-spacing:-.3px;display:flex;align-items:center;gap:10px}
+h1 .dot{width:9px;height:9px;border-radius:50%;background:#0091ff;box-shadow:0 0 0 4px rgba(0,145,255,.14)}
+.sub{font-size:13px;color:#8b95a5;margin-top:2px}
+.actions{display:flex;gap:10px;align-items:center}
+button{font-family:inherit;font-size:14px;border:0;border-radius:10px;cursor:pointer;
+  padding:10px 20px;font-weight:600;transition:.18s}
+button:disabled{opacity:.5;cursor:not-allowed}
+.btn-main{background:#0091ff;color:#fff;box-shadow:0 2px 8px rgba(0,145,255,.24)}
+.btn-main:hover:not(:disabled){background:#0080e2;transform:translateY(-1px)}
+.btn-ghost{background:#fff;color:#475569;border:1px solid #e2e8f0}
+.btn-ghost:hover:not(:disabled){background:#f8fafc;border-color:#cbd5e1}
+.btn-sm{padding:6px 14px;font-size:12.5px;border-radius:8px}
+.tabs{display:flex;gap:4px;background:#eaf2fb;padding:4px;border-radius:10px;width:max-content;margin-bottom:18px}
+.tab{border:0;border-radius:8px;padding:8px 16px;background:transparent;color:#64748b;
+  font-size:13px;font-weight:600;cursor:pointer;box-shadow:none}
+.tab.active{background:#fff;color:#0f172a;box-shadow:0 1px 3px rgba(16,24,40,.08)}
+.card{background:#fff;border-radius:14px;padding:20px;border:1px solid #eef1f6;
+  box-shadow:0 1px 3px rgba(16,24,40,.04);margin-bottom:14px}
+.panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px}
+.panel-head .t{font-size:15px;font-weight:650}
+.panel-head .s{font-size:12px;color:#94a3b8}
+.hero{display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+.avatar{width:60px;height:60px;border-radius:16px;object-fit:cover;background:#f1f5f9;flex:none}
+.avatar-fb{width:60px;height:60px;border-radius:16px;background:#e9f4ff;color:#0284c7;
+  display:grid;place-items:center;font-size:20px;font-weight:650;flex:none}
+.metric{flex:1;min-width:260px}
+.gname{font-size:17px;font-weight:650;letter-spacing:-.2px}
+.gmeta{font-size:12.5px;color:#94a3b8;margin-top:3px}
+.stats{display:flex;gap:22px;margin-top:14px;flex-wrap:wrap}
+.stat .v{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.3px}
+.stat .k{font-size:11.5px;color:#94a3b8;margin-top:1px}
+.mission{display:flex;align-items:center;gap:14px;padding:13px 0;border-bottom:1px solid #f1f5f9}
+.mission:last-child{border-bottom:0;padding-bottom:0}
+.mission:first-child{padding-top:0}
+.m-body{flex:1;min-width:0}
+.m-title{font-size:14px;font-weight:600}
+.m-desc{font-size:12px;color:#94a3b8;margin-top:2px}
+.bar{height:6px;border-radius:99px;background:#eef2f7;margin-top:8px;overflow:hidden;max-width:240px}
+.bar > i{display:block;height:100%;border-radius:99px;background:#0091ff;transition:width .3s}
+.badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;
+  background:#f1f5f9;color:#94a3b8;white-space:nowrap}
+.badge.ok{background:#e8f9ef;color:#16a34a}
+.badge.wait{background:#eff6ff;color:#2563eb}
+.badge.warn{background:#fff7ed;color:#c2410c}
+.field{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid #f5f7fa}
+.field:last-child{border-bottom:0}
+.field > label:not(.switch){width:130px;flex:none;font-size:13px;color:#475569;font-weight:600}
+.field .grow{flex:1}
+textarea,input[type=text],input[type=number],select{
+  width:100%;border:1px solid #e2e8f0;border-radius:9px;padding:9px 11px;
+  font-size:12.5px;font-family:inherit;color:#334155;background:#fbfcfe;
+  outline:none;transition:.15s;line-height:1.5}
+textarea{resize:vertical;min-height:56px}
+input[type=text],input[type=number]{font-family:ui-monospace,Consolas,monospace}
+input[type=number].grow{max-width:140px}
+select.grow{max-width:200px;cursor:pointer}
+input:focus,textarea:focus,select:focus{border-color:#9fd0ff;background:#fff;box-shadow:0 0 0 3px rgba(0,145,255,.1)}
+::placeholder{color:#b6c0cf}
+.note{font-size:12px;color:#94a3b8;line-height:1.7;margin-top:6px}
+.note b{color:#64748b}
+.switch{position:relative;display:inline-block;width:40px;height:22px;flex:none}
+.switch input{opacity:0;width:0;height:0}
+.switch span{position:absolute;inset:0;background:#d7dde6;border-radius:99px;cursor:pointer;transition:.2s}
+.switch span:before{content:"";position:absolute;width:16px;height:16px;left:3px;top:3px;
+  background:#fff;border-radius:50%;transition:.2s;box-shadow:0 1px 2px rgba(16,24,40,.2)}
+.switch input:checked + span{background:#0091ff}
+.switch input:checked + span:before{transform:translateX(18px)}
+.logs{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;max-height:280px;overflow-y:auto;line-height:1.85}
+.line{display:flex;gap:8px}
+.line .tm{color:#cbd5e1;flex:none;font-variant-numeric:tabular-nums}
+.line.error{color:#dc2626}
+.line.success{color:#16a34a}
+.line.warn{color:#b45309}
+.line.finish{color:#0f172a;font-weight:600}
+.empty{color:#cbd5e1;font-size:13px;text-align:center;padding:24px 0}
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);
+  background:#1f2937;color:#fff;font-size:13px;padding:10px 18px;border-radius:10px;
+  opacity:0;pointer-events:none;transition:.25s;z-index:99}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.err{background:#b91c1c}.toast.ok{background:#15803d}
+.hide{display:none !important}
+.modal{position:fixed;inset:0;background:rgba(15,23,42,.45);display:none;
+  align-items:center;justify-content:center;z-index:100;padding:20px}
+.modal.show{display:flex}
+.modal-box{background:#fff;border-radius:16px;padding:22px;max-width:440px;width:100%;
+  max-height:92vh;overflow:auto;box-shadow:0 12px 40px rgba(16,24,40,.18)}
+.modal-box h3{font-size:16px;font-weight:650;margin-bottom:8px}
+.modal-box .msg{font-size:13px;color:#64748b;min-height:22px}
+.modal-box ol{font-size:12.5px;color:#475569;line-height:1.9;margin:12px 0 0 18px}
+.modal-foot{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+@media(max-width:720px){
+  .field > label:not(.switch){width:100%}
+  .field{flex-wrap:wrap;align-items:flex-start}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1><span class="dot"></span>酷狗音乐</h1>
+      <div class="sub">每日领 VIP · 乐迷团　Cookie 只存在本机</div>
+    </div>
+    <div class="actions">
+      <button class="btn-ghost" id="btnRefresh">刷新状态</button>
+      <button class="btn-main" id="btnSave">保存</button>
+      <button class="btn-main" id="btnRun">执行任务</button>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="overview">概览</button>
+    <button class="tab" data-tab="settings">设置</button>
+  </nav>
+
+  <div id="viewOverview">
+    <div class="card">
+      <div class="empty" id="heroEmpty">还没有数据，先在「设置」里快捷登录，然后点「刷新状态」</div>
+      <div class="hero hide" id="heroBody">
+        <div id="avatarBox"></div>
+        <div class="metric">
+          <div class="gname" id="uName">—</div>
+          <div class="gmeta" id="uMeta">—</div>
+          <div class="stats">
+            <div class="stat"><div class="v" id="sListen">—</div><div class="k">听歌领 VIP</div></div>
+            <div class="stat"><div class="v" id="sAd">—</div><div class="k">广告领 VIP</div></div>
+            <div class="stat"><div class="v" id="sVip">—</div><div class="k">VIP 到期</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="panel-head">
+        <span class="t">今日任务</span>
+        <span class="s" id="missionSummary">—</span>
+      </div>
+      <div id="missionList"><div class="empty">暂无数据</div></div>
+    </div>
+
+    <div class="card" id="teamCard">
+      <div class="panel-head">
+        <span class="t">乐迷团</span>
+        <span class="s" id="teamStat">—</span>
+      </div>
+      <div id="teamBody"><div class="empty">刷新后显示</div></div>
+    </div>
+
+    <div class="card">
+      <div class="panel-head">
+        <span class="t">运行日志</span>
+        <span class="s" id="logStat">就绪</span>
+      </div>
+      <div class="logs" id="logs"><div class="empty">点右上角「执行任务」开始</div></div>
+    </div>
+  </div>
+
+  <div id="viewSettings" class="hide">
+    <div class="card">
+      <div class="panel-head">
+        <span class="t">账号</span>
+        <button class="btn-main btn-sm" id="btnLogin">快捷登录</button>
+      </div>
+      <textarea id="cookie" placeholder="登录 kugou.com 后 F12 → Network → 任一请求的 Cookie 整行粘进来" spellcheck="false" style="height:80px"></textarea>
+      <div class="field" style="margin-top:12px">
+        <label>userid</label>
+        <input type="text" class="grow" id="userid" placeholder="纯数字，快捷登录后自动填">
+      </div>
+      <div class="field">
+        <label>token</label>
+        <input type="text" class="grow" id="token" placeholder="Cookie 里的 token 字段，快捷登录后自动填">
+      </div>
+      <div class="field">
+        <label>接口版本</label>
+        <select class="grow" id="platform">
+          <option value="standard">标准版（appid 1005）</option>
+          <option value="lite">概念版（appid 3116）</option>
+        </select>
+      </div>
+      <div class="note">
+        签名要的是 <b>token</b> 和 <b>userid</b>，光有 <code>KuGoo</code> 不够。
+        设备 mid 已自动生成并固定：<code id="midText">—</code>，别每次换。
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="panel-head">
+        <span class="t">任务开关</span>
+        <span class="s">关掉的不会执行</span>
+      </div>
+      <div class="field">
+        <label>听歌领 VIP</label>
+        <input type="text" class="grow" value="上报一次听歌，换当天 VIP 时长" disabled
+               style="border:0;background:transparent;color:#94a3b8;padding-left:0">
+        <label class="switch"><input type="checkbox" id="listen_enable"><span></span></label>
+      </div>
+      <div class="field">
+        <label>广告领 VIP</label>
+        <input type="text" class="grow" value="上报广告播放，每天可领多次" disabled
+               style="border:0;background:transparent;color:#94a3b8;padding-left:0">
+        <label class="switch"><input type="checkbox" id="ad_enable"><span></span></label>
+      </div>
+      <div class="note">
+        官方每天能领的次数会变。返回「次数已用光」就会自动停，不会硬刷。
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="panel-head">
+        <span class="t">节奏</span>
+        <span class="s">间隔短了容易被判定脚本</span>
+      </div>
+      <div class="field">
+        <label>广告领取次数</label>
+        <input type="number" class="grow" id="ad_times" min="1" max="20" step="1">
+        <span style="color:#94a3b8;font-size:13px">次 / 天</span>
+      </div>
+      <div class="field">
+        <label>广告间隔</label>
+        <input type="number" class="grow" id="ad_gap" min="5" step="5">
+        <span style="color:#94a3b8;font-size:13px">秒</span>
+      </div>
+      <div class="field">
+        <label>任务间隔</label>
+        <input type="number" class="grow" id="gap_min" min="1" step="0.5">
+        <span style="color:#94a3b8;font-size:13px">到</span>
+        <input type="number" class="grow" id="gap_max" min="1" step="0.5">
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div class="modal" id="loginModal">
+  <div class="modal-box">
+    <h3>酷狗音乐 · 快捷登录</h3>
+    <div class="msg" id="loginMsg">正在打开登录页…</div>
+    <div style="text-align:center;margin:14px 0">
+      <img id="loginShot" alt="登录页面" style="display:none;max-width:100%;
+           border:1px solid #e2e8f0;border-radius:12px">
+    </div>
+    <ol>
+      <li>等浏览器窗口弹出酷狗官网（第一次会新开一个窗口）</li>
+      <li>扫码或输账号密码登进去，登完不用关窗口</li>
+      <li>程序读到 token 和 userid 会自动验证并保存，这页会自动关掉</li>
+    </ol>
+    <div class="modal-foot">
+      <button class="btn-ghost btn-sm" id="loginClose">关闭</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '/kugou/api';
+const EMBED = /[?&]embed=1/.test(location.search);
+if (EMBED) document.body.classList.add('embed');
+
+const TEXT_IDS = ['cookie', 'userid', 'token'];
+const NUM_IDS = ['ad_times', 'ad_gap', 'gap_min', 'gap_max'];
+const BOOL_IDS = ['listen_enable', 'ad_enable'];
+
+let state = {config: {}};
+let since = 0, polling = null, running = false;
+
+const $ = id => document.getElementById(id);
+
+function esc(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function toast(msg, kind){
+  const el = $('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (kind ? ' ' + kind : '');
+  setTimeout(() => { el.className = 'toast' + (kind ? ' ' + kind : ''); }, 2400);
+}
+
+function setTab(name){
+  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x.dataset.tab === name));
+  $('viewOverview').classList.toggle('hide', name !== 'overview');
+  $('viewSettings').classList.toggle('hide', name !== 'settings');
+  try { history.replaceState(null, '', location.pathname + location.search + '#' + name); } catch(e) {}
+}
+document.querySelectorAll('.tab').forEach(b => { b.onclick = () => setTab(b.dataset.tab); });
+setTab((location.hash || '').replace('#', '') === 'settings' ? 'settings' : 'overview');
+
+function fillForm(cfg){
+  TEXT_IDS.forEach(k => { if ($(k)) $(k).value = cfg[k] == null ? '' : cfg[k]; });
+  NUM_IDS.forEach(k => { if ($(k)) $(k).value = cfg[k] == null ? '' : cfg[k]; });
+  BOOL_IDS.forEach(k => { if ($(k)) $(k).checked = !!cfg[k]; });
+  if ($('platform')) $('platform').value = cfg.platform === 'lite' ? 'lite' : 'standard';
+  $('midText').textContent = cfg.mid || '—';
+}
+
+function renderHero(s){
+  if (!s || !s.nickname){ $('heroBody').classList.add('hide'); return; }
+  $('heroEmpty').classList.add('hide');
+  $('heroBody').classList.remove('hide');
+  const box = $('avatarBox');
+  if (s.avatar) box.innerHTML = `<img class="avatar" alt="" src="${esc(s.avatar)}" referrerpolicy="no-referrer">`;
+  else box.innerHTML = `<div class="avatar-fb">${esc((s.nickname || '?').slice(0,1))}</div>`;
+  $('uName').textContent = s.nickname;
+  $('uMeta').textContent = s.userid ? 'ID ' + s.userid : '';
+
+  const li = $('sListen');
+  li.textContent = s.listen_done ? '已领' : '未领';
+  li.style.color = s.listen_done ? '#16a34a' : '#b45309';
+
+  $('sAd').textContent = (s.ad_done || 0) + '/' + (s.ad_max || 8);
+  $('sVip').textContent = s.vip_end || '—';
+  $('sVip').style.fontSize = '15px';
+}
+
+function renderMissions(s){
+  if (!s || !s.nickname){
+    $('missionList').innerHTML = '<div class="empty">暂无数据</div>';
+    $('missionSummary').textContent = '—';
+    return;
+  }
+  const adDone = s.ad_done || 0, adMax = s.ad_max || 8;
+  const pct = Math.min(100, Math.round(adDone / Math.max(1, adMax) * 100));
+  const rows = [
+    {t: '听歌领 VIP', d: '上报一次听歌，换当天会员时长',
+     ok: !!s.listen_done, badge: s.listen_done ? '已完成' : '未完成'},
+    {t: '广告领 VIP', d: `今日 ${adDone}/${adMax} 次`,
+     ok: adDone >= adMax, badge: adDone >= adMax ? '已领满' : `剩 ${adMax - adDone} 次`,
+     bar: pct},
+  ];
+  $('missionList').innerHTML = rows.map(r => `
+    <div class="mission">
+      <div class="m-body">
+        <div class="m-title">${esc(r.t)}</div>
+        <div class="m-desc">${esc(r.d)}</div>
+        ${r.bar != null ? `<div class="bar"><i style="width:${r.bar}%"></i></div>` : ''}
+      </div>
+      <span class="badge ${r.ok ? 'ok' : 'wait'}">${esc(r.badge)}</span>
+    </div>`).join('');
+  const total = 2, got = (s.listen_done ? 1 : 0) + (adDone >= adMax ? 1 : 0);
+  $('missionSummary').textContent = `${got}/${total} 项完成`;
+}
+
+function renderTeam(s){
+  const box = $('teamBody'), stat = $('teamStat');
+  const team = (s && s.team) || {};
+  if (team.error){
+    stat.textContent = '不可用';
+    box.innerHTML = `<div class="empty">${esc(team.error)}</div>`;
+    return;
+  }
+  if (!team.period_id && !team.period && !team.team){
+    stat.textContent = '未取到';
+    box.innerHTML = '<div class="empty">这个接口要活动期数，当前没有进行中的乐迷团活动</div>';
+    return;
+  }
+  stat.textContent = team.period_id ? '期数 ' + team.period_id : '已取到';
+  // 返回结构随活动变，这里只把标量字段摊平展示，不做臆测映射
+  const flat = [];
+  const walk = (obj, prefix) => {
+    Object.keys(obj || {}).forEach(k => {
+      const v = obj[k];
+      if (v === null || v === '') return;
+      if (typeof v === 'object'){
+        if (Array.isArray(v)) return;
+        walk(v, prefix + k + '.');
+      } else if (typeof v !== 'boolean'){
+        flat.push([prefix + k, String(v)]);
+      }
+    });
+  };
+  walk(team.team || {}, '');
+  walk(team.status || {}, '');
+  if (!flat.length){
+    box.innerHTML = '<div class="empty">这一期没有可展示的字段</div>';
+    return;
+  }
+  box.innerHTML = flat.slice(0, 14).map(([k, v]) =>
+    `<div class="field"><label>${esc(k)}</label>
+     <span style="font-size:12.5px;color:#334155">${esc(v)}</span></div>`).join('');
+}
+
+function applyState(s){
+  if (!s) return;
+  renderHero(s);
+  renderMissions(s);
+  renderTeam(s);
+}
+
+function collectForm(){
+  const out = {};
+  TEXT_IDS.forEach(k => { if ($(k)) out[k] = $(k).value.trim(); });
+  NUM_IDS.forEach(k => { if ($(k)) out[k] = parseFloat($(k).value) || 0; });
+  BOOL_IDS.forEach(k => { if ($(k)) out[k] = $(k).checked; });
+  if ($('platform')) out.platform = $('platform').value;
+  return out;
+}
+
+async function saveAll(silent){
+  const body = collectForm();
+  try{
+    const r = await fetch(API + '/save', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || '保存失败');
+    state.config = Object.assign(state.config || {}, body);
+    if (!silent) toast('已保存', 'ok');
+    return true;
+  }catch(e){
+    toast(e.message || '保存失败', 'err');
+    return false;
+  }
+}
+
+async function refresh(){
+  const btn = $('btnRefresh');
+  btn.disabled = true;
+  btn.textContent = '刷新中…';
+  try{
+    await saveAll(true);
+    const r = await fetch(API + '/refresh', {method: 'POST'});
+    const d = await r.json();
+    if (!d.ok){ toast(d.error || '刷新失败', 'err'); return; }
+    applyState(d.state);
+    toast('已更新', 'ok');
+  }catch(e){
+    toast('刷新失败：程序可能已经退出', 'err');
+  }finally{
+    btn.disabled = false;
+    btn.textContent = '刷新状态';
+  }
+}
+
+function addLogs(items){
+  if (!items.length) return;
+  const box = $('logs');
+  if (box.querySelector('.empty')) box.innerHTML = '';
+  items.forEach(x => {
+    const div = document.createElement('div');
+    div.className = 'line ' + (x.l || '');
+    div.innerHTML = `<span class="tm">${esc(x.t)}</span><span>${esc(x.m)}</span>`;
+    box.appendChild(div);
+    since = Math.max(since, x.id || 0);
+  });
+  box.scrollTop = box.scrollHeight;
+}
+
+async function poll(){
+  if (!running) return;
+  try{
+    const r = await fetch(API + '/logs?since=' + since);
+    const d = await r.json();
+    addLogs(d.logs || []);
+    running = d.running;
+    $('logStat').textContent = d.running ? '运行中…' : '已结束';
+    if (!d.running){
+      $('btnRun').disabled = false;
+      $('btnRun').textContent = '执行任务';
+      clearInterval(polling); polling = null;
+      setTimeout(refresh, 600);
+    }
+  }catch(e){ /* 下一轮再试 */ }
+}
+
+async function run(){
+  const ok = await saveAll(true);
+  if (!ok) return;
+  since = 0;
+  $('logs').innerHTML = '<div class="empty">正在启动…</div>';
+  $('btnRun').disabled = true;
+  $('btnRun').textContent = '执行中…';
+  try{
+    const r = await fetch(API + '/run', {method: 'POST'});
+    const d = await r.json();
+    if (!d.ok){
+      toast(d.error || '启动失败', 'err');
+      $('btnRun').disabled = false;
+      $('btnRun').textContent = '执行任务';
+      return;
+    }
+    running = true;
+    $('logStat').textContent = '运行中…';
+    if (!polling) polling = setInterval(poll, 900);
+  }catch(e){
+    toast('启动失败：程序可能已经退出', 'err');
+    $('btnRun').disabled = false;
+    $('btnRun').textContent = '执行任务';
+  }
+}
+
+let loginTimer = null;
+function loginStop(){ if (loginTimer){ clearInterval(loginTimer); loginTimer = null; } }
+function closeLogin(){ loginStop(); $('loginModal').classList.remove('show'); }
+async function openLogin(){
+  closeLogin();
+  $('loginMsg').textContent = '正在打开登录页…';
+  $('loginShot').style.display = 'none';
+  $('loginModal').classList.add('show');
+  try{
+    await fetch(API + '/login', {method: 'POST'});
+  }catch(e){
+    $('loginMsg').textContent = '打不开登录流程：程序可能已经退出了';
+    return;
+  }
+  const step = async () => {
+    let d;
+    try{
+      const r = await fetch(API + '/login-status');
+      d = await r.json();
+    }catch(e){ return; }
+    if (d.msg) $('loginMsg').textContent = d.msg;
+    if (d.qr){
+      const img = $('loginShot');
+      if (img.getAttribute('src') !== d.qr) img.setAttribute('src', d.qr);
+      img.style.display = '';
+    }
+    if (d.stage === 'success'){
+      loginStop();
+      if (d.cookie){
+        $('cookie').value = d.cookie;
+        state.config = state.config || {};
+        state.config.cookie = d.cookie;
+        await saveAll(true);
+      }
+      toast('登录成功，Cookie 已保存', 'ok');
+      setTimeout(closeLogin, 1200);
+      setTimeout(() => { location.reload(); }, 1500);
+    } else if (d.stage === 'error'){
+      loginStop();
+    }
+  };
+  step();
+  loginTimer = setInterval(step, 1500);
+}
+
+$('btnLogin').onclick = openLogin;
+$('loginClose').onclick = closeLogin;
+$('loginModal').onclick = e => { if (e.target.id === 'loginModal') closeLogin(); };
+$('btnSave').onclick = () => saveAll(false);
+$('btnRefresh').onclick = refresh;
+$('btnRun').onclick = run;
+
+(async () => {
+  try{
+    const r = await fetch(API + '/state');
+    const d = await r.json();
+    state = d;
+    fillForm(d.config || {});
+    applyState(d.cached);
+  }catch(e){
+    toast('读不到配置，程序可能还没起来', 'err');
+  }
+})();
+</script>
+</body>
+</html>

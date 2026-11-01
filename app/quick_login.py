@@ -63,6 +63,22 @@ PLATFORMS = {
         "port": 9350,
         "verify": _verify_netease,
     },
+    # verify / save 由各模块导入时注册（签名与校验逻辑属于各自模块，
+    # 放这里会形成循环依赖）
+    "heybox": {
+        "name": "小黑盒",
+        "login_url": "https://www.xiaoheihe.cn/",
+        "cookie_domains": ("xiaoheihe.cn", ".xiaoheihe.cn", "www.xiaoheihe.cn"),
+        "need": ("pkey",),
+        "port": 9351,
+    },
+    "kugou": {
+        "name": "酷狗音乐",
+        "login_url": "https://www.kugou.com/",
+        "cookie_domains": ("kugou.com", ".kugou.com", "www.kugou.com"),
+        "need": ("KuGoo", "token", "userid"),
+        "port": 9352,
+    },
 }
 
 
@@ -174,7 +190,8 @@ class LoginSession:
 
             if any(n in names for n in spec["need"]) and cookie != seen_cookie:
                 seen_cookie = cookie
-                ok, who = spec["verify"](cookie)
+                verifier = spec.get("verify")
+                ok, who = verifier(cookie) if verifier else (True, "")
                 if ok:
                     if self._save(cookie, who):
                         return

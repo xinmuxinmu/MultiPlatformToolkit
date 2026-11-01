@@ -127,8 +127,7 @@ textarea::placeholder,input::placeholder{color:#b6c0cf}
 .signin-tab.active{background:var(--mp-surface,#fff) !important;color:var(--mp-accent,#2563eb) !important;
   box-shadow:0 1px 4px rgba(16,24,40,.12)}
 .signin-tab:hover:not(.active){color:var(--mp-accent,#2563eb) !important}
-body.sky-tab #btnSave,body.sky-tab #btnAll{display:none}
-body.ne-tab #btnSave,body.ne-tab #btnAll{display:none}
+body.tool-tab #btnSave,body.tool-tab #btnAll{display:none}
 .starsky-view{height:calc(100vh - 205px);min-height:520px;border:1px solid var(--mp-border,#eef1f6);border-radius:14px;
   overflow:hidden;background:var(--mp-bg,#f4f6fa);box-shadow:0 1px 3px rgba(16,24,40,.04)}
 .starsky-frame{width:100%;height:100%;border:0;display:block;background:transparent}
@@ -142,7 +141,7 @@ body.ne-tab #btnSave,body.ne-tab #btnAll{display:none}
   <header>
     <div>
       <h1><span class="dot"></span>一键签到</h1>
-      <div class="sub">微博超话 · 吾爱破解 · 百度贴吧 · StarSky 桌面签到　本地运行，Cookie 不出本机</div>
+      <div class="sub">微博超话 · 吾爱破解 · 百度贴吧 · StarSky 签到 · 网易云乐迷团 · 小黑盒 · 酷狗音乐　本地运行，Cookie 不出本机</div>
     </div>
     <div class="actions">
       <a class="back-home" href="/">返回首页</a>
@@ -155,6 +154,8 @@ body.ne-tab #btnSave,body.ne-tab #btnAll{display:none}
     <button type="button" class="signin-tab active" data-tab="cookie" role="tab">微博 / 贴吧 / 吾爱</button>
     <button type="button" class="signin-tab" data-tab="starsky" role="tab">StarSky 签到</button>
     <button type="button" class="signin-tab" data-tab="netease" role="tab">网易云乐迷团</button>
+    <button type="button" class="signin-tab" data-tab="heybox" role="tab">小黑盒</button>
+    <button type="button" class="signin-tab" data-tab="kugou" role="tab">酷狗音乐</button>
   </nav>
 
   <div id="cookieView">
@@ -184,6 +185,14 @@ body.ne-tab #btnSave,body.ne-tab #btnAll{display:none}
 
   <div class="starsky-view" id="neteaseView" style="display:none">
     <iframe class="starsky-frame" id="neteaseFrame" title="网易云乐迷团" src="about:blank"></iframe>
+  </div>
+
+  <div class="starsky-view" id="heyboxView" style="display:none">
+    <iframe class="starsky-frame" id="heyboxFrame" title="小黑盒每日任务" src="about:blank"></iframe>
+  </div>
+
+  <div class="starsky-view" id="kugouView" style="display:none">
+    <iframe class="starsky-frame" id="kugouFrame" title="酷狗音乐每日领 VIP" src="about:blank"></iframe>
   </div>
 </div>
 
@@ -413,22 +422,31 @@ let since = 0, polling = null, running = false;
 const cards = document.getElementById('cards');
 const logsEl = document.getElementById('logs');
 const statEl = document.getElementById('stat');
-const skyFrame = document.getElementById('starskyFrame');
-const neFrame = document.getElementById('neteaseFrame');
+
+// 每个内嵌页一个 tab：视图 id + iframe id + 首次进入时加载的地址。
+// 加新页面只改这张表，不用再去 showTab 里补 if。
+const TOOLS = {
+  starsky: {view: 'starskyView', frame: 'starskyFrame', src: '/starsky/'},
+  netease: {view: 'neteaseView', frame: 'neteaseFrame', src: '/netease-fans/'},
+  heybox:  {view: 'heyboxView',  frame: 'heyboxFrame',  src: '/heybox/'},
+  kugou:   {view: 'kugouView',   frame: 'kugouFrame',   src: '/kugou/'},
+};
 
 function showTab(tab, updateHash){
-  if (tab !== 'starsky' && tab !== 'netease') tab = 'cookie';
+  if (tab !== 'cookie' && !TOOLS[tab]) tab = 'cookie';
   document.querySelectorAll('.signin-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   document.getElementById('cookieView').style.display = tab === 'cookie' ? '' : 'none';
-  document.getElementById('starskyView').style.display = tab === 'starsky' ? '' : 'none';
-  document.getElementById('neteaseView').style.display = tab === 'netease' ? '' : 'none';
-  document.body.classList.toggle('sky-tab', tab === 'starsky');
-  document.body.classList.toggle('ne-tab', tab === 'netease');
-  if (tab === 'starsky' && (!skyFrame.getAttribute('src') || skyFrame.getAttribute('src') === 'about:blank')){
-    skyFrame.src = '/starsky/?embed=1&v=' + Date.now();
-  }
-  if (tab === 'netease' && (!neFrame.getAttribute('src') || neFrame.getAttribute('src') === 'about:blank')){
-    neFrame.src = '/netease-fans/?embed=1&v=' + Date.now();
+  Object.keys(TOOLS).forEach(k => {
+    const t = TOOLS[k];
+    document.getElementById(t.view).style.display = tab === k ? '' : 'none';
+  });
+  // 内嵌页自己管自己的保存按钮，顶栏那两个留着会误操作
+  document.body.classList.toggle('tool-tab', tab !== 'cookie');
+  if (TOOLS[tab]){
+    const frame = document.getElementById(TOOLS[tab].frame);
+    if (!frame.getAttribute('src') || frame.getAttribute('src') === 'about:blank'){
+      frame.src = TOOLS[tab].src + '?embed=1&v=' + Date.now();
+    }
   }
   if (updateHash){
     try {
@@ -442,12 +460,9 @@ document.getElementById('signinTabs').addEventListener('click', (e) => {
   if (btn) showTab(btn.dataset.tab, true);
 });
 window.addEventListener('hashchange', () => {
-  const h = location.hash.replace('#', '');
-  showTab(h === 'starsky' || h === 'netease' ? h : 'cookie', false);
+  showTab(location.hash.replace('#', '') || 'cookie', false);
 });
-if (location.hash === '#starsky' || location.hash === '#netease'){
-  showTab(location.hash.replace('#', ''), false);
-}
+showTab(location.hash.replace('#', '') || 'cookie', false);
 
 // ---- 渲染卡片
 PLATFORMS.forEach(p => {
