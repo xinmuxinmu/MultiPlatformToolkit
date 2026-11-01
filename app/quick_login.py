@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import threading
 import time
 import urllib.request
@@ -24,6 +25,20 @@ from modules.signin.core import (
 
 PROFILE_ROOT = DATA_ROOT / "login_profiles"
 PROFILE_ROOT.mkdir(parents=True, exist_ok=True)
+
+
+def _kill_port(port: int):
+    """按调试端口找到进程并整树杀掉。Browser.close 不响应时的兜底。"""
+    try:
+        out = subprocess.run(["netstat", "-ano"], capture_output=True,
+                             text=True, timeout=10).stdout
+        pids = {line.split()[-1] for line in out.splitlines()
+                if f":{port} " in line and "LISTENING" in line}
+        for pid in pids:
+            subprocess.run(["taskkill", "/F", "/T", "/PID", pid],
+                           capture_output=True, timeout=10)
+    except Exception:  # noqa: BLE001
+        pass
 
 TIMEOUT = 300          # 二维码一般几分钟换一次，等太久没意义
 SHOT_EVERY = 12        # 把页面截图推给前端，省得用户去翻浏览器窗口
@@ -83,12 +98,22 @@ PLATFORMS = {
 
 
 class LoginSession:
-    """单个平台的一次登录过程，状态供前端轮询。"""
+    """单个平台的一次登录过程。
+
+    交互是「两步」而不是自动轮询：
+    1. start() 起浏览器，按钮变红表示还在等；
+    2. 用户在里面登完，点一下按钮 -> grab() 立刻读 Cookie、校验、保存。
+    这样用户知道东西是什么时候被拿走的，也不会有「登录了但页面没反应」的困惑。
+    """
 
     def __init__(self, key: str):
         self.key = key
         self.spec = PLATFORMS[key]
         self.lock = threading.Lock()
+        self.ws = None
+        self._ws_lock = threading.Lock()
+        self._mid = 100
+        self._finished = threading.Event()
         self.state = {"stage": "idle", "msg": "", "qr": "", "cookie": "", "who": ""}
 
     # ---- 状态
@@ -106,6 +131,7 @@ class LoginSession:
             busy = self.state.get("stage") in ("launching", "waiting")
         if busy:
             return False
+        self._finished.clear()
         threading.Thread(target=self._run, daemon=True).start()
         return True
 
@@ -125,21 +151,28 @@ class LoginSession:
             try:
                 _http_json(f"http://127.0.0.1:{port}/json/version", timeout=1)
                 reused = True
-                self._set(msg="检测到登录窗口已经开着，直接在里面登录就行")
+                self._set(msg="登录窗口本来就开着，直接在里面登就行")
             except Exception:
                 proc = launch_browser(browser, profile, spec["login_url"], port=port)
             ws = self._connect(port)
-            self._wait(ws, port)
+            self.ws = ws
+            self._wait(port)
         except Exception as exc:  # noqa: BLE001
             self._set(stage="error", msg=f"登录没弄成：{exc}")
         finally:
+            # 成功后关掉专用登录窗口。reused 表示这次连接的是上次留下的窗口，
+            # 没有 proc 可杀，改用 CDP 的 Browser.close，再用端口兜底；
+            # 新建进程仍由 kill_browser 兜底。
+            if self.snapshot().get("stage") == "success":
+                self._call("Browser.close", timeout=3)
+                _kill_port(port)
+            self.ws = None
             if ws:
                 ws.close()
             if proc and not reused:
                 kill_browser(proc)
 
-    @staticmethod
-    def _connect(port: int):
+    def _connect(self, port: int):
         targets = None
         for _ in range(40):
             try:
@@ -161,56 +194,83 @@ class LoginSession:
         ws.call("Page.enable", msg_id=1)
         return ws
 
-    def _wait(self, ws, port: int):
+    # ---- 和浏览器通信（会被 _wait 与 grab 同时用，得排队）
+    def _call(self, method: str, params: dict | None = None, timeout: int = 30):
+        ws = self.ws
+        if not ws:
+            return {}
+        with self._ws_lock:
+            self._mid += 1
+            try:
+                return ws.call(method, params or {}, msg_id=self._mid, timeout=timeout)
+            except Exception:
+                return {}
+
+    def _cookies(self) -> list:
+        return self._call("Network.getCookies").get("result", {}).get("cookies") or []
+
+    def _shot(self) -> str:
+        data = (self._call("Page.captureScreenshot",
+                           {"format": "png", "fromSurface": False}, timeout=60)
+                .get("result", {}).get("data") or "")
+        return "data:image/png;base64," + data if data else ""
+
+    def _wait(self, port: int):
+        """把连接保持住，定时推一张页面截图给前端。不自动抓 Cookie。"""
         spec = self.spec
         self._set(stage="waiting",
-                  msg=f"在弹出的浏览器里登录{spec['name']}，扫码或输密码都行")
+                  msg=f"在弹出的窗口里登录{spec['name']}，登完回到这里点一下按钮")
         deadline = time.time() + TIMEOUT
-        mid = 10
-        next_shot = time.time() + 5
-        seen_cookie = ""
+        next_shot = time.time() + 4
         while time.time() < deadline:
-            time.sleep(2)
-            try:
-                cookies = (ws.call("Network.getCookies", {}, msg_id=mid)
-                           .get("result", {}).get("cookies") or [])
-            except Exception:
-                raise RuntimeError("浏览器窗口被关掉了，再点一次「快捷登录」重新来")
-            mid += 1
-
-            mine = [c for c in cookies
-                    if str(c.get("domain") or "") in spec["cookie_domains"]]
-            # 同名 Cookie 只留最后一次写入的（游客态残留 + 新登录撞名时，
-            # 发两份服务端会取错值）
-            uniq = {}
-            for c in mine:
-                uniq[c.get("name")] = c.get("value")
-            names = set(uniq)
-            cookie = "; ".join(f"{k}={v}" for k, v in uniq.items())
-
-            if any(n in names for n in spec["need"]) and cookie != seen_cookie:
-                seen_cookie = cookie
-                verifier = spec.get("verify")
-                ok, who = verifier(cookie) if verifier else (True, "")
-                if ok:
-                    if self._save(cookie, who):
-                        return
-                else:
-                    self._set(msg="已经读到登录字段，正在验证…（没通过就说明还没登完）")
-
+            if self._finished.wait(2):
+                return
             if time.time() >= next_shot:
                 next_shot = time.time() + SHOT_EVERY
-                try:
-                    shot = (ws.call("Page.captureScreenshot",
-                                    {"format": "png", "fromSurface": False},
-                                    msg_id=mid, timeout=60)
-                            .get("result", {}).get("data") or "")
-                    if shot:
-                        self._set(qr="data:image/png;base64," + shot)
-                except Exception:
-                    pass
-                mid += 1
-        self._set(stage="error", msg="等超时了，再点一次「快捷登录」")
+                shot = self._shot()
+                if shot:
+                    self._set(qr=shot)
+        self._set(stage="error", msg="等太久了窗口已经关掉，重新点一次「快捷登录」")
+
+    # ---- 用户点按钮时立刻抓一次
+    def grab(self) -> dict:
+        spec = self.spec
+        if self.snapshot().get("stage") == "launching":
+            self._set(msg="浏览器还在打开，等登录窗口出来后再点")
+            return self.snapshot()
+        if not self.ws:
+            self._set(stage="error",
+                      msg="登录窗口没开着，先点一次「快捷登录」把窗口打开")
+            return self.snapshot()
+
+        cookies = self._cookies()
+        if not cookies:
+            self._set(msg="读不到浏览器 Cookie，确认窗口没被关掉")
+            return self.snapshot()
+
+        mine = [c for c in cookies
+                if str(c.get("domain") or "") in spec["cookie_domains"]]
+        # 同名 Cookie 只留最后一次写入的（游客态残留 + 新登录撞名时，
+        # 发两份服务端会取错值）
+        uniq = {}
+        for c in mine:
+            uniq[c.get("name")] = c.get("value")
+        names = set(uniq)
+        cookie = "; ".join(f"{k}={v}" for k, v in uniq.items())
+
+        if not any(n in names for n in spec["need"]):
+            self._set(msg=f"还没登录：没找到 {' / '.join(spec['need'])}，登完再点一次")
+            return self.snapshot()
+
+        verifier = spec.get("verify")
+        ok, who = verifier(cookie) if verifier else (True, "")
+        if not ok:
+            self._set(msg="读到 Cookie 了，但平台还没认这个登录，登完再点一次")
+            return self.snapshot()
+
+        if self._save(cookie, who):
+            self._finished.set()
+        return self.snapshot()
 
     def _save(self, cookie: str, who: str) -> bool:
         """把 Cookie 交给调用方写进自己的配置。"""
@@ -222,7 +282,7 @@ class LoginSession:
                 self._set(stage="error", msg=f"登录成功但保存失败：{exc}")
                 return False
         self._set(stage="success", cookie=cookie, who=who,
-                  msg=f"登录成功{f'（{who}）' if who else ''}，Cookie 已自动保存")
+                  msg=f"登录成功{f'（{who}）' if who else ''}，已经自动填好")
         return True
 
 

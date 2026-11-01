@@ -6,7 +6,7 @@
 <title>酷狗音乐 · 每日领 VIP</title>
 <script src="/shared/mp_task.js?v=1"></script>
 <link rel="stylesheet" href="/shared/mp_theme.css?v=1">
-<link rel="stylesheet" href="/shared/mp_task.css?v=1">
+<link rel="stylesheet" href="/shared/mp_task.css?v=2">
 <style>
 html{--task-accent:#0091ff;--task-accent-fg:#fff}
 html[data-theme="dark"]{--task-accent:#38bdf8;--task-accent-fg:#062a36}
@@ -79,7 +79,10 @@ html[data-theme="purple"]{--task-accent:#c084fc;--task-accent-fg:#1b1229}
     <div class="card">
       <div class="panel-head">
         <span class="t">账号</span>
-        <button class="btn-main btn-sm" id="btnLogin">扫码登录</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn-ghost btn-sm" id="btnQr">扫码登录</button>
+          <button class="btn-main btn-sm" id="btnLogin">快捷登录</button>
+        </div>
       </div>
       <textarea id="cookie" placeholder="登录 kugou.com 后 F12 → Network → 任一请求的 Cookie 整行粘进来" spellcheck="false" style="height:80px"></textarea>
       <div class="field" style="margin-top:12px">
@@ -99,6 +102,7 @@ html[data-theme="purple"]{--task-accent:#c084fc;--task-accent-fg:#1b1229}
       </div>
       <div class="note">
         签名要的是 <b>token</b> 和 <b>userid</b>，光有 <code>KuGoo</code> 不够。
+        网页快捷登录拿到的 token 不一定被任务接口认可，拿不到就改用「扫码登录」。
         设备 mid 已自动生成并固定：<code id="midText">—</code>，别每次换。
       </div>
     </div>
@@ -154,10 +158,29 @@ html[data-theme="purple"]{--task-accent:#c084fc;--task-accent-fg:#1b1229}
 
 <div class="modal" id="loginModal">
   <div class="modal-box">
-    <h3>酷狗音乐 · 扫码登录</h3>
-    <div class="msg" id="loginMsg">正在拿二维码…</div>
+    <h3>酷狗音乐 · 快捷登录</h3>
+    <div class="msg" id="loginMsg">正在打开登录页…</div>
     <div style="text-align:center;margin:14px 0">
-      <img id="loginShot" alt="登录二维码" style="display:none;width:190px;height:190px">
+      <img id="loginShot" alt="登录页面" style="display:none;max-width:100%">
+    </div>
+    <ol>
+      <li>等浏览器窗口弹出登录页（第一次会新开一个窗口）</li>
+      <li>扫码或输账号密码登进去，登完不用关窗口</li>
+      <li>回到这里点红色按钮，程序才会读取、验证并保存 Cookie</li>
+    </ol>
+    <div class="modal-foot">
+      <button class="btn-main btn-sm login-waiting" id="loginGrab">完成登录，获取 Cookie</button>
+      <button class="btn-ghost btn-sm" id="loginClose">关闭</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="qrModal">
+  <div class="modal-box">
+    <h3>酷狗音乐 · 扫码登录</h3>
+    <div class="msg" id="qrMsg">正在拿二维码…</div>
+    <div style="text-align:center;margin:14px 0">
+      <img id="qrShot" alt="登录二维码" style="display:none;width:190px;height:190px">
     </div>
     <ol>
       <li>打开手机酷狗 App，用「扫一扫」扫这个码</li>
@@ -165,8 +188,8 @@ html[data-theme="purple"]{--task-accent:#c084fc;--task-accent-fg:#1b1229}
       <li>二维码过期了点「换一张」重新来</li>
     </ol>
     <div class="modal-foot">
-      <button class="btn-ghost btn-sm" id="loginAgain">换一张</button>
-      <button class="btn-ghost btn-sm" id="loginClose">关闭</button>
+      <button class="btn-ghost btn-sm" id="qrAgain">换一张</button>
+      <button class="btn-ghost btn-sm" id="qrClose">关闭</button>
     </div>
   </div>
 </div>
@@ -420,55 +443,158 @@ async function run(){
   }
 }
 
-let loginTimer = null, qrKey = '';
+// ---- 快捷登录：第一次打开浏览器，第二次由用户主动获取 Cookie
+let loginTimer = null, loginStage = 'idle', loginBusy = '';
 function loginStop(){ if (loginTimer){ clearInterval(loginTimer); loginTimer = null; } }
+function paintLogin(stage){
+  loginStage = stage || 'idle';
+  const waiting = loginStage === 'launching' || loginStage === 'waiting';
+  for (const id of ['btnLogin', 'loginGrab']){
+    const btn = $(id);
+    if (!btn) continue;
+    btn.classList.toggle('login-waiting', waiting);
+    btn.disabled = loginBusy || (id === 'loginGrab' && !waiting);
+    btn.textContent = waiting
+      ? (loginBusy === 'grab' ? '正在获取 Cookie…'
+         : loginBusy === 'open' ? '正在打开浏览器…' : '完成登录，获取 Cookie')
+      : (id === 'btnLogin' ? '快捷登录' : '完成登录，获取 Cookie');
+  }
+}
 function closeLogin(){ loginStop(); $('loginModal').classList.remove('show'); }
-
+function renderLogin(d){
+  paintLogin(d.stage);
+  if (d.msg) $('loginMsg').textContent = d.msg;
+  if (d.qr){
+    const img = $('loginShot');
+    if (img.getAttribute('src') !== d.qr) img.setAttribute('src', d.qr);
+    img.style.display = '';
+  }
+}
+async function loginStatusStep(){
+  if (loginBusy) return;
+  try{
+    const r = await fetch(API + '/login-status');
+    const d = await r.json();
+    renderLogin(d);
+    if (d.stage === 'error' || d.stage === 'success') loginStop();
+  }catch(e){ /* 临时网络失败不打断登录窗口 */ }
+}
+function watchLogin(){
+  loginStop();
+  loginStatusStep();
+  loginTimer = setInterval(loginStatusStep, 1500);
+}
 async function openLogin(){
-  closeLogin();
-  qrKey = '';
-  $('loginMsg').textContent = '正在拿二维码…';
+  if (loginBusy) return;
+  loginStop();
+  loginBusy = 'open';
+  paintLogin('launching');
+  $('loginMsg').textContent = '正在打开登录页…';
   $('loginShot').style.display = 'none';
   $('loginModal').classList.add('show');
+  try{
+    const r = await fetch(API + '/login', {method: 'POST'});
+    if (!r.ok) throw new Error();
+  }catch(e){
+    paintLogin('error');
+    $('loginMsg').textContent = '打不开登录流程：程序可能已经退出了';
+    return;
+  }finally{
+    loginBusy = '';
+    paintLogin(loginStage);
+  }
+  watchLogin();
+}
+async function grabLogin(){
+  if (loginBusy) return;
+  loginStop();
+  $('loginModal').classList.add('show');
+  loginBusy = 'grab';
+  paintLogin(loginStage);
+  $('loginMsg').textContent = '正在读取浏览器 Cookie 并验证账号…';
+  try{
+    const r = await fetch(API + '/login-grab', {method: 'POST'});
+    if (!r.ok) throw new Error(r.status === 404 || r.status === 405
+      ? '当前运行的程序还没加载新接口，请重启应用后再试'
+      : `获取接口返回 ${r.status}，请重启应用后再试`);
+    const d = await r.json();
+    renderLogin(d);
+    if (d.stage === 'success'){
+      loginStop();
+      // 后端已经写盘了，这里只回填，别再拿空表单覆盖一遍
+      await syncFromServer();
+      toast('登录成功，Cookie 和账号信息已保存', 'ok');
+      closeLogin();
+      refresh();
+    }else if (d.stage === 'error'){
+      loginStop();
+    }else{
+      watchLogin();
+    }
+  }catch(e){
+    $('loginMsg').textContent = e.message || '获取失败：连接中断，请重新打开登录窗口';
+    paintLogin('error');
+  }finally{
+    loginBusy = '';
+    paintLogin(loginStage);
+  }
+}
+$('btnLogin').onclick = () => {
+  if (loginStage === 'waiting' || loginStage === 'launching') grabLogin();
+  else openLogin();
+};
+$('loginGrab').onclick = grabLogin;
+$('loginClose').onclick = closeLogin;
+$('loginModal').onclick = e => { if (e.target.id === 'loginModal') closeLogin(); };
+
+// ---- 扫码登录（拿到的 token 才能调 App 任务接口）
+let qrTimer = null, qrKey = '';
+function qrStop(){ if (qrTimer){ clearInterval(qrTimer); qrTimer = null; } }
+function closeQr(){ qrStop(); $('qrModal').classList.remove('show'); }
+async function openQr(){
+  qrStop();
+  qrKey = '';
+  $('qrMsg').textContent = '正在拿二维码…';
+  $('qrShot').style.display = 'none';
+  $('qrModal').classList.add('show');
   try{
     const r = await fetch(API + '/qr-start', {method: 'POST'});
     const d = await r.json();
     if (!d.ok) throw new Error(d.error || '拿不到二维码');
     qrKey = d.key;
     if (d.img){
-      $('loginShot').setAttribute('src', d.img);
-      $('loginShot').style.display = '';
+      $('qrShot').setAttribute('src', d.img);
+      $('qrShot').style.display = '';
     }
-    $('loginMsg').textContent = '用手机酷狗 App 扫码';
+    $('qrMsg').textContent = '用手机酷狗 App 扫码';
   }catch(e){
-    $('loginMsg').textContent = e.message || '拿不到二维码，程序可能已经退出了';
+    $('qrMsg').textContent = e.message || '拿不到二维码，程序可能已经退出了';
     return;
   }
-  loginTimer = setInterval(async () => {
+  qrTimer = setInterval(async () => {
     if (!qrKey) return;
     let d;
     try{
       const r = await fetch(API + '/qr-poll?key=' + encodeURIComponent(qrKey));
       d = await r.json();
     }catch(e){ return; }
-    if (!d.ok){ $('loginMsg').textContent = d.error || '查询失败'; return; }
-    if (d.msg) $('loginMsg').textContent = d.msg;
+    if (!d.ok){ $('qrMsg').textContent = d.error || '查询失败'; return; }
+    if (d.msg) $('qrMsg').textContent = d.msg;
     if (d.stage === 'success'){
-      loginStop();
+      qrStop();
       await syncFromServer();
       toast('登录成功，token 已保存', 'ok');
-      setTimeout(closeLogin, 1200);
-      setTimeout(() => { location.reload(); }, 1500);
+      closeQr();
+      refresh();
     } else if (d.stage === 'expired' || d.stage === 'error'){
-      loginStop();
+      qrStop();
     }
   }, 2000);
 }
-
-$('btnLogin').onclick = openLogin;
-$('loginAgain').onclick = openLogin;
-$('loginClose').onclick = closeLogin;
-$('loginModal').onclick = e => { if (e.target.id === 'loginModal') closeLogin(); };
+$('btnQr').onclick = openQr;
+$('qrAgain').onclick = openQr;
+$('qrClose').onclick = closeQr;
+$('qrModal').onclick = e => { if (e.target.id === 'qrModal') closeQr(); };
 $('btnSave').onclick = () => saveAll(false);
 $('btnRefresh').onclick = refresh;
 $('btnRun').onclick = run;

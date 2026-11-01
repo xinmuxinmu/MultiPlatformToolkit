@@ -6,7 +6,7 @@
 <title>网易云 · 乐迷团</title>
 <script src="/shared/mp_task.js?v=1"></script>
 <link rel="stylesheet" href="/shared/mp_theme.css?v=1">
-<link rel="stylesheet" href="/shared/mp_task.css?v=1">
+<link rel="stylesheet" href="/shared/mp_task.css?v=2">
 <style>
 html{--task-accent:#6d28d9;--task-accent-fg:#fff}
 html[data-theme="dark"]{--task-accent:#a78bfa;--task-accent-fg:#1e1b4b}
@@ -194,9 +194,10 @@ html[data-theme="purple"]{--task-accent:#c084fc;--task-accent-fg:#1b1229}
     <ol>
       <li>等浏览器窗口弹出登录页（第一次会新开一个窗口）</li>
       <li>扫码或输账号密码登进去，登完不用关窗口</li>
-      <li>程序读到 Cookie 会自动验证并保存，这页会自动关掉</li>
+      <li>回到这里点红色按钮，程序才会读取、验证并保存 Cookie</li>
     </ol>
     <div class="modal-foot">
+      <button class="btn-main btn-sm login-waiting" id="loginGrab">完成登录，获取 Cookie</button>
       <button class="btn-ghost btn-sm" id="loginClose">关闭</button>
     </div>
   </div>
@@ -477,53 +478,112 @@ async function run(){
   }
 }
 
-// ---- 快捷登录
-let loginTimer = null;
+// ---- 快捷登录：第一次打开浏览器，第二次由用户主动获取 Cookie
+let loginTimer = null, loginStage = 'idle', loginBusy = '';
 function loginStop(){
   if (loginTimer){ clearInterval(loginTimer); loginTimer = null; }
+}
+function paintLogin(stage){
+  loginStage = stage || 'idle';
+  const waiting = loginStage === 'launching' || loginStage === 'waiting';
+  for (const id of ['btnLogin', 'loginGrab']){
+    const btn = $(id);
+    if (!btn) continue;
+    btn.classList.toggle('login-waiting', waiting);
+    btn.disabled = loginBusy || (id === 'loginGrab' && !waiting);
+    btn.textContent = waiting
+      ? (loginBusy === 'grab' ? '正在获取 Cookie…'
+         : loginBusy === 'open' ? '正在打开浏览器…' : '完成登录，获取 Cookie')
+      : (id === 'btnLogin' ? '快捷登录' : '完成登录，获取 Cookie');
+  }
 }
 function closeLogin(){
   loginStop();
   $('loginModal').classList.remove('show');
 }
+function renderLogin(d){
+  paintLogin(d.stage);
+  if (d.msg) $('loginMsg').textContent = d.msg;
+  if (d.qr){
+    const img = $('loginShot');
+    if (img.getAttribute('src') !== d.qr) img.setAttribute('src', d.qr);
+    img.style.display = '';
+  }
+}
+async function loginStatusStep(){
+  if (loginBusy) return;
+  try{
+    const r = await fetch(API + '/login-status');
+    const d = await r.json();
+    renderLogin(d);
+    if (d.stage === 'error' || d.stage === 'success') loginStop();
+  }catch(e){ /* 临时网络失败不打断登录窗口 */ }
+}
+function watchLogin(){
+  loginStop();
+  loginStatusStep();
+  loginTimer = setInterval(loginStatusStep, 1500);
+}
 async function openLogin(){
-  closeLogin();
+  if (loginBusy) return;
+  loginStop();
+  loginBusy = 'open';
+  paintLogin('launching');
   $('loginMsg').textContent = '正在打开登录页…';
   $('loginShot').style.display = 'none';
   $('loginModal').classList.add('show');
   try{
-    await fetch(API + '/login', {method:'POST'});
+    const r = await fetch(API + '/login', {method: 'POST'});
+    if (!r.ok) throw new Error();
   }catch(e){
+    paintLogin('error');
     $('loginMsg').textContent = '打不开登录流程：程序可能已经退出了';
     return;
+  }finally{
+    loginBusy = false;
+    paintLogin(loginStage);
   }
-  const step = async () => {
-    let d;
-    try{
-      const r = await fetch(API + '/login-status');
-      d = await r.json();
-    }catch(e){ return; }
-    if (d.msg) $('loginMsg').textContent = d.msg;
-    if (d.qr){
-      const img = $('loginShot');
-      if (img.getAttribute('src') !== d.qr) img.setAttribute('src', d.qr);
-      img.style.display = '';
-    }
+  watchLogin();
+}
+async function grabLogin(){
+  if (loginBusy) return;
+  loginStop();
+  $('loginModal').classList.add('show');
+  loginBusy = 'grab';
+  paintLogin(loginStage);
+  $('loginMsg').textContent = '正在读取浏览器 Cookie 并验证账号…';
+  try{
+    const r = await fetch(API + '/login-grab', {method: 'POST'});
+    if (!r.ok) throw new Error(r.status === 404 || r.status === 405
+      ? '当前运行的程序还没加载新接口，请重启应用后再试'
+      : `获取接口返回 ${r.status}，请重启应用后再试`);
+    const d = await r.json();
+    renderLogin(d);
     if (d.stage === 'success'){
       loginStop();
       // 后端已经写盘了，这里只回填，别再拿空表单覆盖一遍
       await syncFromServer();
-      toast('登录成功，Cookie 已保存', 'ok');
-      setTimeout(closeLogin, 1200);
-      setTimeout(refresh, 1500);
-    } else if (d.stage === 'error'){
+      toast('登录成功，Cookie 和账号信息已保存', 'ok');
+      closeLogin();
+      refresh();
+    }else if (d.stage === 'error'){
       loginStop();
+    }else{
+      watchLogin();
     }
-  };
-  step();
-  loginTimer = setInterval(step, 1500);
+  }catch(e){
+    $('loginMsg').textContent = e.message || '获取失败：连接中断，请重新打开登录窗口';
+    paintLogin('error');
+  }finally{
+    loginBusy = false;
+    paintLogin(loginStage);
+  }
 }
-$('btnLogin').onclick = openLogin;
+$('btnLogin').onclick = () => {
+  if (loginStage === 'waiting' || loginStage === 'launching') grabLogin();
+  else openLogin();
+};
+$('loginGrab').onclick = grabLogin;
 $('loginClose').onclick = closeLogin;
 $('loginModal').onclick = e => { if (e.target.id === 'loginModal') closeLogin(); };
 

@@ -36,6 +36,8 @@ button {
 }
 button:disabled { opacity: .5; cursor: not-allowed }
 .btn-main { background: var(--task-accent, var(--mp-accent)); color: var(--task-accent-fg, #fff) }
+.btn-main.login-waiting { background: #dc2626; color: #fff }
+.btn-main.login-waiting:hover:not(:disabled) { background: #b91c1c; filter: none }
 .btn-main:hover:not(:disabled) { filter: brightness(.92); transform: translateY(-1px) }
 .btn-ghost { background: var(--mp-surface); color: var(--mp-text); border: 1px solid var(--mp-border) }
 .btn-ghost:hover:not(:disabled) { background: var(--mp-surface2); border-color: var(--mp-border-strong) }

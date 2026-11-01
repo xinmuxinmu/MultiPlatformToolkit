@@ -758,6 +758,12 @@ def login_start() -> bool:
     return quick_login.get("netease").start()
 
 
+def login_grab() -> dict:
+    _bind_login()
+    from app import quick_login
+    return quick_login.get("netease").grab()
+
+
 def login_snapshot() -> dict:
     from app import quick_login
     return quick_login.get("netease").snapshot()

@@ -88,6 +88,12 @@ def login():
     return {"ok": True, "note": "" if ok else "登录窗口已经开着，直接在里面登就行"}
 
 
+@router.post("/api/login-grab")
+def login_grab():
+    """用户在浏览器里登完后主动点一下，再读取并保存 Cookie。"""
+    return core.login_grab()
+
+
 @router.get("/api/login-status")
 def login_status():
     return core.login_snapshot()

@@ -684,6 +684,12 @@ def login_start() -> bool:
     return quick_login.get("heybox").start()
 
 
+def login_grab() -> dict:
+    _bind_login()
+    from app import quick_login
+    return quick_login.get("heybox").grab()
+
+
 def login_snapshot() -> dict:
     from app import quick_login
     return quick_login.get("heybox").snapshot()
