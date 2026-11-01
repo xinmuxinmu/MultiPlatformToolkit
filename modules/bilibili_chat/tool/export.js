@@ -273,6 +273,26 @@ async function main() {
   }
   if (skippedSys) console.log('已跳过系统通知聚合会话：' + skippedSys + ' 个');
 
+  // 应援团群：会话列表不区分群/私信，需要用 link_group 的群列表覆盖名称与封面，
+  // 并标记 isGroup（拉消息时 session_type 要传 2）
+  try {
+    const gl = await api('https://api.vc.bilibili.com/link_group/v1/member/my_groups');
+    const groups = (gl && gl.list) || [];
+    if (groups.length) {
+      const gmap = new Map(groups.map(x => [String(x.group_id), x]));
+      let hit = 0;
+      for (const c of convs) {
+        const grp = gmap.get(c.uid);
+        if (!grp) continue;
+        c.isGroup = true;
+        c.name = grp.group_name || c.name || ('群 ' + c.uid);
+        c.avatar = grp.group_cover || c.avatar || '';
+        hit++;
+      }
+      console.log('应援团群：' + groups.length + ' 个' + (hit ? '，会话中命中 ' + hit + ' 个' : '（会话里暂未出现）'));
+    }
+  } catch (e) { console.log('  ! 群列表 ' + e.message); }
+
   // 私信会话列表本身不返回用户资料，批量查名片接口补名字和头像
   const need = convs.filter(c => !c.isGroup && (!c.name || !c.avatar)).map(c => c.uid);
   if (need.length) {
@@ -327,8 +347,10 @@ async function main() {
     const known = incMode ? baseMap.get(c.uid) : null;   // 全量模式必须完全忽略旧基线
     let hitKnown = false;
 
+    // 群聊用 session_type=2，私信用 1（同一个接口，参数不同）
+    const stype = c.isGroup ? 2 : 1;
     for (let round = 0; round < 3000 && msgs.length < cap; round++) {
-      const u = MSGS_API + `?talker_id=${c.uid}&session_type=1&begin_seqno=0&end_seqno=${endSeq}&size=${MSG_SIZE}&build=0&mobi_app=web`;
+      const u = MSGS_API + `?talker_id=${c.uid}&session_type=${stype}&begin_seqno=0&end_seqno=${endSeq}&size=${MSG_SIZE}&build=0&mobi_app=web`;
       let d;
       try { d = await api(u); } catch (e) { console.log('  ! ' + c.name + ' ' + e.message); break; }
       const arr = d.messages || [];
@@ -354,7 +376,7 @@ async function main() {
       return {
         id: String(m.msg_seqno), text: p.text, ts: (m.timestamp || 0) * 1000,
         from: String(m.sender_uid || ''),
-        fromName: self ? (me.uname || '') : c.name,
+        fromName: self ? (me.uname || '') : (c.isGroup ? '' : c.name),
         avatar: '',   // 后面按 sender 统一填
         recall: p.recall ? 1 : 0,
         picUrl: p.pic || '',
@@ -418,12 +440,46 @@ async function main() {
   }
   results.forEach(c => c.messages.forEach(m => { if (!m.pics) m.pics = []; delete m.picUrl; }));
 
+  // ---- 群聊发送者名片（群里每个人都要单独查，否则只有 UID） ----
+  const groupUids = new Set();
+  results.forEach(c => {
+    if (!c.isGroup) return;
+    c.messages.forEach(m => { if (m.from && m.from !== myUid) groupUids.add(m.from); });
+  });
+  if (groupUids.size) {
+    console.log('群消息发送者：' + groupUids.size + ' 个');
+    const gcards = new Map();
+    const arr = [...groupUids];
+    for (let i = 0; i < arr.length; i += 50) {
+      try {
+        const cards = await api('https://api.vc.bilibili.com/account/v1/user/cards?uids=' + arr.slice(i, i + 50).join(','));
+        for (const x of (Array.isArray(cards) ? cards : [])) if (x && x.mid) gcards.set(String(x.mid), x);
+      } catch (e) { console.log('  ! 群名片 ' + e.message); }
+      await sleep(GAP);
+    }
+    console.log('群名片补到：' + gcards.size + ' 个');
+    results.forEach(c => c.messages.forEach(m => {
+      if (m.self) return;
+      const card = gcards.get(m.from);
+      if (card) {
+        if (card.name) m.fromName = card.name;
+        m.avatarSrc = card.face || '';
+      } else if (!m.fromName || m.fromName === c.name) {
+        m.fromName = m.from ? ('成员 ' + m.from) : '系统';   // 名片查不到 / 入群提示等系统消息
+      }
+    }));
+  }
+
   // ---- 头像 ----
   fs.mkdirSync(path.join(OUT, 'avatars'), { recursive: true });
   const avSet = new Set();
   const meAvatarSrc = me.face || '';
   if (meAvatarSrc) avSet.add(meAvatarSrc);
   results.forEach(c => { if (c.avatar && c.avatar.startsWith('http')) avSet.add(c.avatar); });
+  // 群消息里每个发送者自己的头像也要下载
+  results.forEach(c => c.messages.forEach(m => {
+    if (m.avatarSrc && m.avatarSrc.startsWith('http')) avSet.add(m.avatarSrc);
+  }));
   const avMap = new Map();
   for (const a of [...avSet]) {
     const hb = 'avatars/' + crypto.createHash('md5').update(a.split('?')[0]).digest('hex').slice(0, 16);
@@ -444,9 +500,15 @@ async function main() {
   results.forEach(c => {
     if (!c.avatar || !c.avatar.startsWith('avatars/')) c.avatar = avMap.get(c.avatar) || '';
   });
-  // 消息头像按 sender 填：自己用 me 头像，对方用会话头像
+  // 消息头像：群聊用各自的发送者头像，私信用会话头像，自己用 me 头像
   const meAv = avMap.get(meAvatarSrc) || '';
   results.forEach(c => c.messages.forEach(m => {
+    if (!m.from) { m.avatar = ''; delete m.avatarSrc; return; }   // 系统提示不挂人像
+    if (m.avatarSrc) {
+      m.avatar = avMap.get(m.avatarSrc) || '';
+      delete m.avatarSrc;
+      return;
+    }
     if (m.avatar && m.avatar.startsWith('avatars/')) return;   // 已是本地路径
     m.avatar = m.self ? meAv : (c.avatar || '');
   }));
