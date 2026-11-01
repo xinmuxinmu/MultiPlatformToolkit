@@ -60,6 +60,16 @@ KG_HEADERS = {"kg-rc": "1", "kg-thash": "5d816a0", "kg-rec": "1",
 # 乐迷团接口把 token 再包一层：明文 "moc.uoguk.59::" + token，补零到 128 字节，
 # 用公钥做无填充 RSA（pow(m, e, n)）后转大写 hex，前面加 "h5"。
 TOKEN_PREFIX = "moc.uoguk.59::"
+# 账号接口（/v3/get_my_info）用标准版公钥，乐迷团 /youth/v1/ut/* 用概念版公钥。
+# 两个公钥对应两套密钥，用混了会拿到 error_code 20006「参数错误」。
+STD_PUBKEY = (
+    "-----BEGIN PUBLIC KEY-----\n"
+    "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDIAG7QOELSYoIJvTFJhMpe1s/g"
+    "bjDJX51HBNnEl5HXqTW6lQ7LC8jr9fWZTwusknp+sVGzwd40MwP6U5yDE27M/X1+"
+    "UR4tvOGOqp94TJtQ1EPnWGWXngpeIW5GxoQGao1rmYWAu6oi1z9XkChrsUdC6DJE"
+    "5E221wf/4WLFxwAtRQIDAQAB\n"
+    "-----END PUBLIC KEY-----"
+)
 LITE_PUBKEY = (
     "-----BEGIN PUBLIC KEY-----\n"
     "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDECi0Np2UR87scwrvTr72L6oO0"
@@ -125,9 +135,9 @@ def calc_mid(guid: str) -> str:
     return str(int(md5(guid), 16))
 
 
-def rsa_raw_hex(text: str) -> str:
+def rsa_raw_hex(text: str, pem: str = "") -> str:
     """无填充 RSA：明文补零到密钥长度后直接 pow(m, e, n)。"""
-    key = load_pem_public_key(LITE_PUBKEY.encode())
+    key = load_pem_public_key((pem or STD_PUBKEY).encode())
     nums = key.public_numbers()
     size = key.key_size // 8
     raw = text.encode("utf-8")
@@ -189,6 +199,26 @@ def parse_cookie(text: str) -> dict:
     return out
 
 
+def kugoo_fields(cookie: str) -> dict:
+    """网页登录后凭据塞在 KuGoo 这个 cookie 里，格式是 a=b&c=d，不是分号。
+
+    KugooID 就是 userid，t 是网页 token。注意这个 token 调 App 接口会 20006，
+    只在不方便扫码时用来兜底显示，真正能用的还是扫码拿的那个。
+    """
+    ck = parse_cookie(cookie)
+    inner = {}
+    for part in (ck.get("KuGoo") or "").split("&"):
+        if "=" in part:
+            k, v = part.split("=", 1)
+            inner[k.strip()] = v.strip()
+    return {
+        "userid": inner.get("KugooID") or ck.get("KugooID") or "",
+        "token": inner.get("t") or ck.get("t") or "",
+        "mid": ck.get("mid") or inner.get("mid") or "",
+        "dfid": ck.get("dfid") or inner.get("dfid") or "",
+    }
+
+
 def norm_cookie(text: str) -> str:
     text = (text or "").strip()
     if text.lower().startswith("cookie:"):
@@ -217,8 +247,9 @@ class Client:
                  log=None):
         self.log = log or (lambda *_: None)
         ck = parse_cookie(cookie)
-        self.token = str(token or ck.get("token") or "").strip()
-        self.userid = str(userid or ck.get("userid") or ck.get("KugouID") or "").strip()
+        kg = kugoo_fields(cookie)
+        self.token = str(token or ck.get("token") or kg["token"] or "").strip()
+        self.userid = str(userid or ck.get("userid") or kg["userid"] or "").strip()
         if not self.token:
             raise KugouError(
                 "Cookie 里没有 token，这份不是登录态。"
@@ -226,8 +257,8 @@ class Client:
         if not self.userid.isdigit():
             raise KugouError("读不到 userid，请在设置里手动填一下（纯数字）")
         self.cookie = norm_cookie(cookie)
-        self.mid = str(mid or "").strip() or calc_mid(str(uuid.uuid4()))
-        self.dfid = str(dfid or "-").strip() or "-"
+        self.mid = str(mid or "").strip() or kg["mid"] or calc_mid(str(uuid.uuid4()))
+        self.dfid = str(dfid or "-").strip() or kg["dfid"] or "-"
         lite = str(platform or "standard").lower() == "lite"
         self.appid = APPID_LITE if lite else APPID_STD
         self.clientver = CLIENTVER_LITE if lite else CLIENTVER_STD
@@ -327,7 +358,7 @@ class Client:
             "clienttime": now_ms, "mid": self.mid, "uuid": "-",
             "dfid": self.dfid, "appid": self.appid,
             "userid": int(self.userid),
-            "token": "h5" + rsa_raw_hex(TOKEN_PREFIX + self.token).upper(),
+            "token": "h5" + rsa_raw_hex(TOKEN_PREFIX + self.token, LITE_PUBKEY).upper(),
         }
         if with_period:
             p["period_id"] = period_id
@@ -608,6 +639,74 @@ class KugouDaily:
         state = load_state()
         state["progress"] = prog
         save_state(state)
+
+
+# ---------------------------------------------------------------- 扫码登录
+#
+# 酷狗网页版登录后 cookie 里的 t / KuGoo 只够网页自己用，调 /v3、/youth 这些
+# App 接口会直接返回 20006/20018。真正能用的 token 只能从扫码登录拿：
+#   /v2/qrcode               拿 key + 二维码图片（base64 直接给前端显示）
+#   /v2/get_userinfo_qrcode  轮询，data.status: 0 过期 / 1 待扫 / 2 待确认 / 4 成功
+# status=4 时返回 token + userid，这才是能调接口的那一对。
+
+LOGIN_HOST = "https://login-user.kugou.com"
+QR_TEXT = f"https://h5.kugou.com/apps/loginQRCode/html/index.html?appid={APPID_STD}&"
+
+
+def _login_get(path: str, extra: dict, mid: str) -> dict:
+    now = int(time.time())
+    p = {"dfid": "-", "mid": mid, "uuid": "-", "appid": APPID_STD,
+         "clientver": CLIENTVER_STD, "clienttime": now, **extra}
+    p["signature"] = sign_web(p)
+    url = LOGIN_HOST + path + "?" + urllib.parse.urlencode(p)
+    req = urllib.request.Request(url, headers={
+        "User-Agent": UA, "dfid": "-", "mid": mid,
+        "clienttime": str(now), "Cookie": f"kg_mid={mid}", **KG_HEADERS})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            raw = resp.read()
+    except Exception as exc:  # noqa: BLE001
+        raise KugouError(f"登录接口请求失败：{exc}")
+    try:
+        return json.loads(_decode(raw))
+    except Exception:
+        raise KugouError(f"登录接口返回的不是 JSON：{_decode(raw)[:150]}")
+
+
+def qr_start() -> dict:
+    """取二维码。图是接口直接给的 base64，不用自己画。"""
+    cfg = load_config()
+    data = _login_get("/v2/qrcode", {
+        "appid": 1001, "type": 1, "plat": 4,       # 拿 key 用 1001，校验时才用 1005
+        "qrcode_txt": QR_TEXT, "srcappid": SRCAPPID}, cfg["mid"])
+    body = data.get("data") or {}
+    if not body.get("qrcode"):
+        raise KugouError(f"没拿到二维码（error_code={data.get('error_code')}）")
+    return {"key": body["qrcode"], "img": body.get("qrcode_img") or ""}
+
+
+def qr_poll(key: str) -> dict:
+    cfg = load_config()
+    data = _login_get("/v2/get_userinfo_qrcode", {
+        "plat": 4, "appid": APPID_STD, "srcappid": SRCAPPID,
+        "qrcode": key, "dev": "-"}, cfg["mid"])
+    body = data.get("data") or {}
+    state = _int(body.get("status"))
+    if state == 4:
+        token = str(body.get("token") or "")
+        userid = str(body.get("userid") or "")
+        if not token or not userid:
+            return {"stage": "error", "msg": "扫码通过了但没拿到 token，再扫一次试试"}
+        cfg["token"] = token
+        cfg["userid"] = userid
+        cfg["cookie"] = f"token={token}; userid={userid}; kg_mid={cfg['mid']}"
+        save_config(cfg)
+        return {"stage": "success", "msg": "登录成功，token 已保存", "userid": userid}
+    if state == 2:
+        return {"stage": "confirm", "msg": "已扫码，在手机上点一下确认"}
+    if state == 0:
+        return {"stage": "expired", "msg": "二维码过期了，点「换一张」刷新"}
+    return {"stage": "waiting", "msg": "用手机酷狗 App 扫码"}
 
 
 # ---------------------------------------------------------------- 快捷登录

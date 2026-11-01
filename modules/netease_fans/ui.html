@@ -4,130 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>网易云 · 乐迷团</title>
+<script src="/shared/mp_task.js?v=1"></script>
+<link rel="stylesheet" href="/shared/mp_theme.css?v=1">
+<link rel="stylesheet" href="/shared/mp_task.css?v=1">
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{
-  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;
-  background:#f4f6fa;color:#1f2937;line-height:1.6;
-  padding:28px 20px 40px;min-height:100vh;
-}
-body.embed{background:#fff;padding:0}
-.wrap{max-width:1060px;margin:0 auto}
-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:12px}
-h1{font-size:22px;font-weight:650;letter-spacing:-.3px;display:flex;align-items:center;gap:10px}
-h1 .dot{width:9px;height:9px;border-radius:50%;background:#6d28d9;box-shadow:0 0 0 4px rgba(109,40,217,.14)}
-.sub{font-size:13px;color:#8b95a5;margin-top:2px}
-.actions{display:flex;gap:10px;align-items:center}
-button{font-family:inherit;font-size:14px;border:0;border-radius:10px;cursor:pointer;
-  padding:10px 20px;font-weight:600;transition:.18s}
-button:disabled{opacity:.5;cursor:not-allowed}
-.btn-main{background:#6d28d9;color:#fff;box-shadow:0 2px 8px rgba(109,40,217,.22)}
-.btn-main:hover:not(:disabled){background:#5b21b6;transform:translateY(-1px)}
-.btn-ghost{background:#fff;color:#475569;border:1px solid #e2e8f0}
-.btn-ghost:hover:not(:disabled){background:#f8fafc;border-color:#cbd5e1}
-.tabs{display:flex;gap:4px;background:#eef2f9;padding:4px;border-radius:10px;width:max-content;margin-bottom:18px}
-.tab{border:0;border-radius:8px;padding:8px 16px;background:transparent;color:#64748b;
-  font-size:13px;font-weight:600;cursor:pointer;box-shadow:none}
-.tab.active{background:#fff;color:#6d28d9;box-shadow:0 1px 3px rgba(16,24,40,.08)}
-.card{background:#fff;border-radius:14px;padding:20px;border:1px solid #eef1f6;
-  box-shadow:0 1px 3px rgba(16,24,40,.04);margin-bottom:14px}
-.panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
-.panel-head .t{font-size:15px;font-weight:650}
-.panel-head .s{font-size:12px;color:#94a3b8}
-
-.hero{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap}
-.avatar{width:64px;height:64px;border-radius:16px;object-fit:cover;background:#f1f5f9;flex:none}
-.avatar-fb{width:64px;height:64px;border-radius:16px;background:#f3efff;color:#6d28d9;
-  display:grid;place-items:center;font-size:20px;font-weight:650;flex:none}
-.gname{font-size:17px;font-weight:650;letter-spacing:-.2px}
-.gmeta{font-size:12.5px;color:#94a3b8;margin-top:3px}
-.metric{flex:1;min-width:280px}
-.metric-top{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
-.lv{font-size:26px;font-weight:700;color:#6d28d9;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
-.integral{font-size:14px;font-weight:600;color:#334155;font-variant-numeric:tabular-nums}
-.remain{font-size:12px;color:#94a3b8}
-.bar{height:8px;border-radius:99px;background:#eef1f6;overflow:hidden;margin-top:10px}
-.bar > i{display:block;height:100%;border-radius:99px;background:#6d28d9;transition:width .5s ease}
-.bar.green > i{background:#16a34a}
-
-.mission{display:flex;align-items:center;gap:14px;padding:13px 0;border-bottom:1px solid #f1f5f9}
-.mission:last-child{border-bottom:0;padding-bottom:0}
-.mission:first-child{padding-top:0}
-.m-body{flex:1;min-width:0}
-.m-title{font-size:14px;font-weight:600;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
-.m-sub{font-size:12px;color:#94a3b8;margin-top:2px}
-.m-right{display:flex;align-items:center;gap:12px;flex:none}
-.m-prog{font-size:12.5px;color:#64748b;font-variant-numeric:tabular-nums;font-weight:600}
-.m-bar{width:70px;height:5px;border-radius:99px;background:#eef1f6;overflow:hidden}
-.m-bar > i{display:block;height:100%;border-radius:99px;background:#a78bfa}
-.badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;background:#f1f5f9;color:#94a3b8;white-space:nowrap}
-.badge.ok{background:#e8f9ef;color:#16a34a}
-.badge.run{background:#f3efff;color:#6d28d9}
-.badge.warn{background:#fef2f2;color:#dc2626}
-.badge.risk{background:#fef2f2;color:#dc2626}
-.badge.soft{background:#fff7ed;color:#b45309}
-
-.field{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid #f5f7fa}
-.field:last-child{border-bottom:0}
-/* 只作用于文字标签。开关本身也是 label，一起命中会被撑成 120px 宽，
-   滑块在里面就只走了一小截，看着像没打开。 */
-.field > label:not(.switch){width:120px;flex:none;font-size:13px;color:#475569;font-weight:600}
-.field .grow{flex:1}
-textarea,input[type=text],input[type=number]{
-  width:100%;border:1px solid #e2e8f0;border-radius:9px;padding:9px 11px;
-  font-size:12.5px;font-family:inherit;color:#334155;
-  background:#fbfcfe;outline:none;transition:.15s;line-height:1.5;
-}
-textarea{resize:vertical;min-height:56px}
-input[type=text],input[type=number]{font-family:ui-monospace,Consolas,monospace}
-input[type=number].grow{max-width:140px}
-input:focus,textarea:focus{border-color:#c4b5fd;background:#fff;
-  box-shadow:0 0 0 3px rgba(109,40,217,.08)}
-::placeholder{color:#b6c0cf}
-.note{font-size:12px;color:#94a3b8;line-height:1.7;margin-top:6px}
-.note.danger{background:#fef7f7;border-left:3px solid #f09595;padding:10px 12px;
-  border-radius:0 8px 8px 0;color:#b91c1c;margin-top:10px}
-
-.switch{position:relative;display:inline-block;width:40px;height:22px;flex:none}
-.switch input{opacity:0;width:0;height:0}
-.switch span{position:absolute;inset:0;background:#d7dde6;border-radius:99px;
-  cursor:pointer;transition:.2s}
-.switch span:before{content:"";position:absolute;width:16px;height:16px;left:3px;top:3px;
-  background:#fff;border-radius:50%;transition:.2s;box-shadow:0 1px 2px rgba(16,24,40,.2)}
-.switch input:checked + span{background:#6d28d9}
-.switch input:checked + span:before{transform:translateX(18px)}
-
-.logs{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;
-  max-height:280px;overflow-y:auto;line-height:1.85}
-.line{display:flex;gap:8px}
-.line .tm{color:#cbd5e1;flex:none;font-variant-numeric:tabular-nums}
-.line.error{color:#dc2626}
-.line.success{color:#16a34a}
-.line.warn{color:#b45309}
-.line.finish{color:#6d28d9;font-weight:600}
-.empty{color:#cbd5e1;font-size:13px;text-align:center;padding:24px 0}
-.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);
-  background:#1f2937;color:#fff;font-size:13px;padding:10px 18px;border-radius:10px;
-  opacity:0;pointer-events:none;transition:.25s;z-index:99}
-.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-.toast.err{background:#b91c1c}
-.toast.ok{background:#15803d}
-.hide{display:none !important}
-.btn-sm{padding:6px 14px;font-size:12.5px;border-radius:8px}
-.modal{position:fixed;inset:0;background:rgba(15,23,42,.45);display:none;
-  align-items:center;justify-content:center;z-index:100;padding:20px}
-.modal.show{display:flex}
-.modal-box{background:#fff;border-radius:16px;padding:22px;max-width:440px;width:100%;
-  max-height:92vh;overflow:auto;box-shadow:0 12px 40px rgba(16,24,40,.18)}
-.modal-box h3{font-size:16px;font-weight:650;margin-bottom:8px}
-.modal-box .msg{font-size:13px;color:#64748b;min-height:22px}
-.modal-box ol{font-size:12.5px;color:#475569;line-height:1.9;margin:12px 0 0 18px}
-.modal-foot{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
-@media(max-width:720px){
-  .field > label:not(.switch){width:100%}
-  .field{flex-wrap:wrap;align-items:flex-start}
-  .m-bar{display:none}
-}
+html{--task-accent:#6d28d9;--task-accent-fg:#fff}
+html[data-theme="dark"]{--task-accent:#a78bfa;--task-accent-fg:#1e1b4b}
+html[data-theme="ocean"]{--task-accent:#22d3ee;--task-accent-fg:#062a36}
+html[data-theme="purple"]{--task-accent:#c084fc;--task-accent-fg:#1b1229}
 </style>
 </head>
 <body>
@@ -505,6 +389,17 @@ async function saveAll(silent){
 }
 
 // ---- 刷新
+async function syncFromServer(){
+  // 登录成功后从后端把 cookie / userid / token 这些回填到表单。
+  // 之前是先填 cookie 再 saveAll(true)，会把后端刚写好的 userid、token 覆盖成空。
+  try{
+    const r = await fetch(API + '/state');
+    const d = await r.json();
+    state = d;
+    fillForm(d.config || {});
+  }catch(e){ /* 读不到就保持原样，下一次刷新会补上 */ }
+}
+
 async function refresh(){
   const btn = $('btnRefresh');
   btn.disabled = true;
@@ -616,12 +511,8 @@ async function openLogin(){
     }
     if (d.stage === 'success'){
       loginStop();
-      if (d.cookie){
-        $('cookie').value = d.cookie;
-        state.config = state.config || {};
-        state.config.cookie = d.cookie;
-        await saveAll(true);
-      }
+      // 后端已经写盘了，这里只回填，别再拿空表单覆盖一遍
+      await syncFromServer();
       toast('登录成功，Cookie 已保存', 'ok');
       setTimeout(closeLogin, 1200);
       setTimeout(refresh, 1500);

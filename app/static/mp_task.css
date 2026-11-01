@@ -1,0 +1,182 @@
+/* 任务类页面通用样式（网易云乐迷团 / 小黑盒 / 酷狗音乐）
+ *
+ * 颜色全部走 mp_ui.css 的主题变量，这样在 深色/白色/蓝色/紫色 四套主题下
+ * 都能跟着变。品牌色用 --task-accent，由各页面自己按主题覆盖。
+ */
+
+* { box-sizing: border-box; margin: 0; padding: 0 }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+  background: var(--mp-bg);
+  color: var(--mp-text);
+  line-height: 1.6;
+  padding: 28px 20px 40px;
+  min-height: 100vh;
+  transition: background .2s, color .2s;
+}
+body.embed { padding: 16px 20px 32px }
+.wrap { max-width: 1060px; margin: 0 auto }
+
+/* ---- 顶部 */
+header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; flex-wrap: wrap; gap: 12px }
+h1 { font-size: 22px; font-weight: 650; letter-spacing: -.3px; display: flex; align-items: center; gap: 10px }
+h1 .dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--task-accent, var(--mp-accent));
+  box-shadow: 0 0 0 4px var(--mp-accent-soft);
+}
+.sub { font-size: 13px; color: var(--mp-muted); margin-top: 2px }
+.actions { display: flex; gap: 10px; align-items: center }
+
+/* ---- 按钮 */
+button {
+  font-family: inherit; font-size: 14px; border: 0; border-radius: 10px; cursor: pointer;
+  padding: 10px 20px; font-weight: 600; transition: .18s;
+}
+button:disabled { opacity: .5; cursor: not-allowed }
+.btn-main { background: var(--task-accent, var(--mp-accent)); color: var(--task-accent-fg, #fff) }
+.btn-main:hover:not(:disabled) { filter: brightness(.92); transform: translateY(-1px) }
+.btn-ghost { background: var(--mp-surface); color: var(--mp-text); border: 1px solid var(--mp-border) }
+.btn-ghost:hover:not(:disabled) { background: var(--mp-surface2); border-color: var(--mp-border-strong) }
+.btn-sm { padding: 6px 14px; font-size: 12.5px; border-radius: 8px }
+
+/* ---- 页内标签 */
+.tabs {
+  display: flex; gap: 4px; background: var(--mp-surface3);
+  padding: 4px; border-radius: 10px; width: max-content; margin-bottom: 18px;
+}
+.tab { border: 0; border-radius: 8px; padding: 8px 16px; background: transparent; color: var(--mp-muted); font-size: 13px; font-weight: 600; cursor: pointer }
+.tab.active { background: var(--mp-surface); color: var(--task-accent, var(--mp-accent)); box-shadow: var(--mp-shadow) }
+
+/* ---- 卡片 */
+.card {
+  background: var(--mp-surface); border-radius: 14px; padding: 20px;
+  border: 1px solid var(--mp-border); box-shadow: var(--mp-shadow); margin-bottom: 14px;
+}
+.panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; gap: 10px }
+.panel-head .t { font-size: 15px; font-weight: 650 }
+.panel-head .s { font-size: 12px; color: var(--mp-muted) }
+
+/* ---- 账号信息 */
+.hero { display: flex; gap: 18px; align-items: center; flex-wrap: wrap }
+.avatar { width: 60px; height: 60px; border-radius: 16px; object-fit: cover; background: var(--mp-surface3); flex: none }
+.avatar-fb {
+  width: 60px; height: 60px; border-radius: 16px;
+  background: var(--mp-accent-soft); color: var(--task-accent, var(--mp-accent));
+  display: grid; place-items: center; font-size: 20px; font-weight: 650; flex: none;
+}
+.metric { flex: 1; min-width: 260px }
+.gname { font-size: 17px; font-weight: 650; letter-spacing: -.2px }
+.gmeta { font-size: 12.5px; color: var(--mp-muted); margin-top: 3px }
+.stats { display: flex; gap: 22px; margin-top: 14px; flex-wrap: wrap }
+.stat .v { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.3px }
+.stat .k { font-size: 11.5px; color: var(--mp-muted); margin-top: 1px }
+
+/* ---- 任务行 */
+.mission { display: flex; align-items: center; gap: 14px; padding: 13px 0; border-bottom: 1px solid var(--mp-border) }
+.mission:last-child { border-bottom: 0; padding-bottom: 0 }
+.mission:first-child { padding-top: 0 }
+.m-body { flex: 1; min-width: 0 }
+.m-title { font-size: 14px; font-weight: 600 }
+.m-desc { font-size: 12px; color: var(--mp-muted); margin-top: 2px }
+.bar { height: 6px; border-radius: 99px; background: var(--mp-surface3); margin-top: 8px; overflow: hidden; max-width: 240px }
+.bar > i { display: block; height: 100%; border-radius: 99px; background: var(--task-accent, var(--mp-accent)); transition: width .3s }
+
+.badge { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 20px; background: var(--mp-surface3); color: var(--mp-muted); white-space: nowrap }
+.badge.ok { background: var(--mp-ok-soft); color: var(--mp-ok) }
+.badge.wait { background: var(--mp-accent-soft); color: var(--mp-accent) }
+.badge.warn { background: var(--mp-warn-soft); color: var(--mp-warn) }
+.badge.high { background: var(--mp-danger-soft); color: var(--mp-danger) }
+.badge.risk { background: var(--mp-danger-soft); color: var(--mp-danger) }
+.badge.soft { background: var(--mp-warn-soft); color: var(--mp-warn) }
+
+/* 带进度条的紧凑任务行（网易云乐迷团在用） */
+.metric-top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap }
+.lv { font-size: 26px; font-weight: 700; color: var(--task-accent, var(--mp-accent)); letter-spacing: -.5px; font-variant-numeric: tabular-nums }
+.integral { font-size: 14px; font-weight: 600; color: var(--mp-text); font-variant-numeric: tabular-nums }
+.remain { font-size: 12px; color: var(--mp-muted) }
+.m-sub { font-size: 12px; color: var(--mp-muted); margin-top: 2px }
+.m-right { display: flex; align-items: center; gap: 12px; flex: none }
+.m-prog { font-size: 12.5px; color: var(--mp-muted); font-variant-numeric: tabular-nums; font-weight: 600 }
+.m-bar { width: 70px; height: 5px; border-radius: 99px; background: var(--mp-surface3); overflow: hidden }
+.m-bar > i { display: block; height: 100%; border-radius: 99px; background: var(--task-accent, var(--mp-accent)) }
+
+/* ---- 表单 */
+.field { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--mp-border) }
+.field:last-child { border-bottom: 0 }
+.field > label:not(.switch) { width: 130px; flex: none; font-size: 13px; color: var(--mp-text); font-weight: 600; opacity: .85 }
+.field .grow { flex: 1 }
+.field .hint { border: 0 !important; background: transparent !important; color: var(--mp-muted) !important; padding-left: 0 !important }
+
+textarea, input[type=text], input[type=number], select {
+  width: 100%; border: 1px solid var(--mp-border); border-radius: 9px; padding: 9px 11px;
+  font-size: 12.5px; font-family: inherit; color: var(--mp-text); background: var(--mp-input);
+  outline: none; transition: .15s; line-height: 1.5;
+}
+textarea { resize: vertical; min-height: 56px }
+input[type=text], input[type=number] { font-family: ui-monospace, Consolas, monospace }
+input[type=number].grow { max-width: 140px }
+select.grow { max-width: 220px; cursor: pointer }
+input:focus, textarea:focus, select:focus { border-color: var(--task-accent, var(--mp-accent)); background: var(--mp-surface) }
+::placeholder { color: var(--mp-muted); opacity: .65 }
+.note { font-size: 12px; color: var(--mp-muted); line-height: 1.7; margin-top: 6px }
+.note b { color: var(--mp-text) }
+code { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; background: var(--mp-surface3); padding: 1px 5px; border-radius: 4px }
+
+/* ---- 开关 */
+.switch { position: relative; display: inline-block; width: 40px; height: 22px; flex: none }
+.switch input { opacity: 0; width: 0; height: 0 }
+.switch span { position: absolute; inset: 0; background: var(--mp-border-strong); border-radius: 99px; cursor: pointer; transition: .2s }
+.switch span:before {
+  content: ""; position: absolute; width: 16px; height: 16px; left: 3px; top: 3px;
+  background: #fff; border-radius: 50%; transition: .2s; box-shadow: 0 1px 2px rgba(16, 24, 40, .2);
+}
+.switch input:checked + span { background: var(--task-accent, var(--mp-accent)) }
+.switch input:checked + span:before { transform: translateX(18px) }
+
+/* ---- 日志 */
+.logs {
+  font-family: ui-monospace, Consolas, monospace; font-size: 12.5px;
+  max-height: 280px; overflow-y: auto; line-height: 1.85;
+  background: var(--mp-surface2); border-radius: 10px; padding: 10px 12px;
+}
+.line { display: flex; gap: 8px }
+.line .tm { color: var(--mp-muted); flex: none; font-variant-numeric: tabular-nums; opacity: .7 }
+.line.error { color: var(--mp-danger) }
+.line.success { color: var(--mp-ok) }
+.line.warn { color: var(--mp-warn) }
+.line.finish { color: var(--mp-text); font-weight: 600 }
+
+.empty { color: var(--mp-muted); font-size: 13px; text-align: center; padding: 24px 0; opacity: .8 }
+
+/* ---- 提示 */
+.toast {
+  position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(20px);
+  background: var(--mp-text); color: var(--mp-bg); font-size: 13px; padding: 10px 18px;
+  border-radius: 10px; opacity: 0; pointer-events: none; transition: .25s; z-index: 99;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0) }
+.toast.err { background: var(--mp-danger); color: #fff }
+.toast.ok { background: var(--mp-ok); color: #fff }
+
+.hide { display: none !important }
+
+/* ---- 弹窗 */
+.modal { position: fixed; inset: 0; background: rgba(8, 12, 22, .55); display: none; align-items: center; justify-content: center; z-index: 100; padding: 20px }
+.modal.show { display: flex }
+.modal-box {
+  background: var(--mp-surface); color: var(--mp-text); border: 1px solid var(--mp-border);
+  border-radius: 16px; padding: 22px; max-width: 440px; width: 100%; max-height: 92vh;
+  overflow: auto; box-shadow: 0 12px 40px rgba(0, 0, 0, .28);
+}
+.modal-box h3 { font-size: 16px; font-weight: 650; margin-bottom: 8px }
+.modal-box .msg { font-size: 13px; color: var(--mp-muted); min-height: 22px }
+.modal-box ol { font-size: 12.5px; color: var(--mp-text); opacity: .85; line-height: 1.9; margin: 12px 0 0 18px }
+.modal-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px }
+.modal-box img { border: 1px solid var(--mp-border); border-radius: 12px; background: #fff }
+
+@media (max-width: 720px) {
+  .field > label:not(.switch) { width: 100% }
+  .field { flex-wrap: wrap; align-items: flex-start }
+}
