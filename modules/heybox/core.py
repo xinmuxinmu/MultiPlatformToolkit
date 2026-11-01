@@ -302,8 +302,15 @@ class Client:
         except Exception:
             raise HeyboxError(f"接口返回的不是 JSON：{_decode(raw)[:150]}")
         status = str(payload.get("status") or "")
-        if status == "login":
-            raise HeyboxError("登录态失效了，重新快捷登录一次")
+        if status in ("login", "relogin"):
+            # relogin 是「这个接口不认这份凭据」，不是过期。任务中心是 App 端功能，
+            # 网页登录拿到的 pkey 调不动它——实测过精简 4 个 cookie、整行 cookie、
+            # 换 host 都一样，签名本身没问题（匿名请求返回的是 status:login）。
+            raise HeyboxError(
+                "小黑盒任务接口不认网页登录的凭据（status:relogin）。"
+                "任务中心是 App 端功能，网页版 pkey 调不了，这块暂时跑不了。")
+        if status == "lack_token":
+            raise HeyboxError("设备令牌（x_xhh_tokenid）无效，重新快捷登录一次")
         if status == "failed":
             msg = payload.get("msg") or "接口返回失败"
             raise HeyboxError(f"{endpoint}：{msg}")
@@ -356,7 +363,7 @@ def parse_tasks(result: dict) -> dict:
     user = result.get("user") or {}
     groups = result.get("task_list") or []
     if not groups:
-        raise HeyboxError("任务列表是空的，可能是接口改版了")
+        raise HeyboxError("接口没返回任何任务分组（既不是登录问题，也不是空列表）")
     daily = next((g for g in groups if g.get("title") == "每日任务"), None)
     if not daily or not isinstance(daily.get("tasks"), list) or not daily["tasks"]:
         raise HeyboxError("没找到「每日任务」分组，接口结构可能变了")
@@ -645,7 +652,7 @@ def _verify_heybox(cookie: str) -> tuple[bool, str]:
             data = json.loads(_decode(resp.read()))
     except Exception:
         return False, ""
-    if str(data.get("status") or "") == "login":
+    if str(data.get("status") or "") in ("login", "relogin"):
         return False, ""
     user = data.get("user") or {}
     if user.get("userid"):

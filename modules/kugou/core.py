@@ -522,8 +522,13 @@ class KugouDaily:
     # ---- 只读
     def refresh(self) -> dict:
         client = self._client()
-        prof = profile_of(client.my_info())
+        payload = client.my_info()
+        prof = profile_of(payload)
         if not prof["nickname"]:
+            if _int(payload.get("error_code")) == 20006:
+                raise KugouError(
+                    "这份 token 调不了接口（error_code 20006）。"
+                    "网页登录拿到的 t 只能在网页上用，请点「扫码登录」拿一个真 token。")
             raise KugouError("账号接口没返回昵称，这个 token 可能已经过期")
 
         prev = load_state()
@@ -713,15 +718,14 @@ def qr_poll(key: str) -> dict:
 
 def _verify_kugou(cookie: str) -> tuple[bool, str]:
     """用账号接口确认 token 真的能用，别把游客 Cookie 当成登录态。"""
-    ck = parse_cookie(norm_cookie(cookie))
-    token = ck.get("token") or ""
-    userid = ck.get("userid") or ck.get("KugouID") or ""
-    if not token or not userid.isdigit():
+    fields = kugoo_fields(cookie)
+    if not fields["token"] or not fields["userid"].isdigit():
         return False, ""
     cfg = load_config()
     try:
-        info = Client(norm_cookie(cookie), userid, token,
-                      cfg.get("mid", ""), cfg.get("dfid", "-"),
+        info = Client(norm_cookie(cookie), fields["userid"], fields["token"],
+                      fields["mid"] or cfg.get("mid", ""),
+                      fields["dfid"] or cfg.get("dfid", "-"),
                       cfg.get("platform", "standard")).my_info()
     except Exception:  # noqa: BLE001
         return False, ""
@@ -733,13 +737,16 @@ def _verify_kugou(cookie: str) -> tuple[bool, str]:
 
 def _save_login_cookie(cookie: str, who: str):
     cfg = load_config()
-    ck = parse_cookie(cookie)
+    field = kugoo_fields(cookie)
     cfg["cookie"] = cookie
-    if ck.get("token"):
-        cfg["token"] = ck["token"]
-    uid = ck.get("userid") or ck.get("KugouID")
-    if uid and str(uid).isdigit():
-        cfg["userid"] = str(uid)
+    if field["token"]:
+        cfg["token"] = field["token"]
+    if field["userid"].isdigit():
+        cfg["userid"] = field["userid"]
+    if field["mid"]:
+        cfg["mid"] = field["mid"]
+    if field["dfid"]:
+        cfg["dfid"] = field["dfid"]
     save_config(cfg)
 
 

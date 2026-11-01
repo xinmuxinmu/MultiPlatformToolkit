@@ -82,3 +82,26 @@ def login():
 @router.get("/api/login-status")
 def login_status():
     return core.login_snapshot()
+
+
+@router.post("/api/qr-start")
+def qr_start():
+    """扫码登录：拿二维码。比网页登录靠谱——网页 cookie 里的 token 调不了 App 接口。"""
+    try:
+        return {"ok": True, **core.qr_start()}
+    except core.KugouError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": f"拿二维码失败：{exc}"}, status_code=500)
+
+
+@router.get("/api/qr-poll")
+def qr_poll(key: str = ""):
+    if not key:
+        return JSONResponse({"ok": False, "error": "缺少二维码 key"}, status_code=400)
+    try:
+        return {"ok": True, **core.qr_poll(key)}
+    except core.KugouError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": f"查询扫码状态失败：{exc}"}, status_code=500)

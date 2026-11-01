@@ -35,7 +35,7 @@ html[data-theme="purple"]{--task-accent:#c084fc;--task-accent-fg:#1b1229}
 
   <div id="viewOverview">
     <div class="card">
-      <div class="empty" id="heroEmpty">还没有数据，先在「设置」里快捷登录，然后点「刷新状态」</div>
+      <div class="empty" id="heroEmpty">还没有数据，先在「设置」里扫码登录，然后点「刷新状态」</div>
       <div class="hero hide" id="heroBody">
         <div id="avatarBox"></div>
         <div class="metric">
@@ -79,16 +79,16 @@ html[data-theme="purple"]{--task-accent:#c084fc;--task-accent-fg:#1b1229}
     <div class="card">
       <div class="panel-head">
         <span class="t">账号</span>
-        <button class="btn-main btn-sm" id="btnLogin">快捷登录</button>
+        <button class="btn-main btn-sm" id="btnLogin">扫码登录</button>
       </div>
       <textarea id="cookie" placeholder="登录 kugou.com 后 F12 → Network → 任一请求的 Cookie 整行粘进来" spellcheck="false" style="height:80px"></textarea>
       <div class="field" style="margin-top:12px">
         <label>userid</label>
-        <input type="text" class="grow" id="userid" placeholder="纯数字，快捷登录后自动填">
+        <input type="text" class="grow" id="userid" placeholder="纯数字，扫码登录后自动填">
       </div>
       <div class="field">
         <label>token</label>
-        <input type="text" class="grow" id="token" placeholder="Cookie 里的 token 字段，快捷登录后自动填">
+        <input type="text" class="grow" id="token" placeholder="扫码登录后自动填；手动填要填扫出来的那个 token">
       </div>
       <div class="field">
         <label>接口版本</label>
@@ -154,18 +154,18 @@ html[data-theme="purple"]{--task-accent:#c084fc;--task-accent-fg:#1b1229}
 
 <div class="modal" id="loginModal">
   <div class="modal-box">
-    <h3>酷狗音乐 · 快捷登录</h3>
-    <div class="msg" id="loginMsg">正在打开登录页…</div>
+    <h3>酷狗音乐 · 扫码登录</h3>
+    <div class="msg" id="loginMsg">正在拿二维码…</div>
     <div style="text-align:center;margin:14px 0">
-      <img id="loginShot" alt="登录页面" style="display:none;max-width:100%;
-           border:1px solid #e2e8f0;border-radius:12px">
+      <img id="loginShot" alt="登录二维码" style="display:none;width:190px;height:190px">
     </div>
     <ol>
-      <li>等浏览器窗口弹出酷狗官网（第一次会新开一个窗口）</li>
-      <li>扫码或输账号密码登进去，登完不用关窗口</li>
-      <li>程序读到 token 和 userid 会自动验证并保存，这页会自动关掉</li>
+      <li>打开手机酷狗 App，用「扫一扫」扫这个码</li>
+      <li>手机上点确认，这边会自动拿到 token 并保存</li>
+      <li>二维码过期了点「换一张」重新来</li>
     </ol>
     <div class="modal-foot">
+      <button class="btn-ghost btn-sm" id="loginAgain">换一张</button>
       <button class="btn-ghost btn-sm" id="loginClose">关闭</button>
     </div>
   </div>
@@ -420,48 +420,53 @@ async function run(){
   }
 }
 
-let loginTimer = null;
+let loginTimer = null, qrKey = '';
 function loginStop(){ if (loginTimer){ clearInterval(loginTimer); loginTimer = null; } }
 function closeLogin(){ loginStop(); $('loginModal').classList.remove('show'); }
+
 async function openLogin(){
   closeLogin();
-  $('loginMsg').textContent = '正在打开登录页…';
+  qrKey = '';
+  $('loginMsg').textContent = '正在拿二维码…';
   $('loginShot').style.display = 'none';
   $('loginModal').classList.add('show');
   try{
-    await fetch(API + '/login', {method: 'POST'});
+    const r = await fetch(API + '/qr-start', {method: 'POST'});
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || '拿不到二维码');
+    qrKey = d.key;
+    if (d.img){
+      $('loginShot').setAttribute('src', d.img);
+      $('loginShot').style.display = '';
+    }
+    $('loginMsg').textContent = '用手机酷狗 App 扫码';
   }catch(e){
-    $('loginMsg').textContent = '打不开登录流程：程序可能已经退出了';
+    $('loginMsg').textContent = e.message || '拿不到二维码，程序可能已经退出了';
     return;
   }
-  const step = async () => {
+  loginTimer = setInterval(async () => {
+    if (!qrKey) return;
     let d;
     try{
-      const r = await fetch(API + '/login-status');
+      const r = await fetch(API + '/qr-poll?key=' + encodeURIComponent(qrKey));
       d = await r.json();
     }catch(e){ return; }
+    if (!d.ok){ $('loginMsg').textContent = d.error || '查询失败'; return; }
     if (d.msg) $('loginMsg').textContent = d.msg;
-    if (d.qr){
-      const img = $('loginShot');
-      if (img.getAttribute('src') !== d.qr) img.setAttribute('src', d.qr);
-      img.style.display = '';
-    }
     if (d.stage === 'success'){
       loginStop();
-      // 后端已经写盘了，这里只回填，别再拿空表单覆盖一遍
       await syncFromServer();
-      toast('登录成功，Cookie 已保存', 'ok');
+      toast('登录成功，token 已保存', 'ok');
       setTimeout(closeLogin, 1200);
       setTimeout(() => { location.reload(); }, 1500);
-    } else if (d.stage === 'error'){
+    } else if (d.stage === 'expired' || d.stage === 'error'){
       loginStop();
     }
-  };
-  step();
-  loginTimer = setInterval(step, 1500);
+  }, 2000);
 }
 
 $('btnLogin').onclick = openLogin;
+$('loginAgain').onclick = openLogin;
 $('loginClose').onclick = closeLogin;
 $('loginModal').onclick = e => { if (e.target.id === 'loginModal') closeLogin(); };
 $('btnSave').onclick = () => saveAll(false);
