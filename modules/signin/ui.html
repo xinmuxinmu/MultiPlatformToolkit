@@ -156,6 +156,7 @@ body.tool-tab #btnSave,body.tool-tab #btnAll{display:none}
     <button type="button" class="signin-tab" data-tab="netease" role="tab">网易云乐迷团</button>
     <button type="button" class="signin-tab" data-tab="heybox" role="tab">小黑盒</button>
     <button type="button" class="signin-tab" data-tab="kugou" role="tab">酷狗音乐</button>
+    <button type="button" class="signin-tab" data-tab="bili-vip" role="tab">B站大会员</button>
   </nav>
 
   <div id="cookieView">
@@ -193,6 +194,10 @@ body.tool-tab #btnSave,body.tool-tab #btnAll{display:none}
 
   <div class="starsky-view" id="kugouView" style="display:none">
     <iframe class="starsky-frame" id="kugouFrame" title="酷狗音乐每日领 VIP" src="about:blank"></iframe>
+  </div>
+
+  <div class="starsky-view" id="biliVipView" style="display:none">
+    <iframe class="starsky-frame" id="biliVipFrame" title="B站大会员大积分" src="about:blank"></iframe>
   </div>
 </div>
 
@@ -430,6 +435,7 @@ const TOOLS = {
   netease: {view: 'neteaseView', frame: 'neteaseFrame', src: '/netease-fans/'},
   heybox:  {view: 'heyboxView',  frame: 'heyboxFrame',  src: '/heybox/'},
   kugou:   {view: 'kugouView',   frame: 'kugouFrame',   src: '/kugou/'},
+  'bili-vip': {view: 'biliVipView', frame: 'biliVipFrame', src: '/bili-vip/'},
 };
 
 function showTab(tab, updateHash){

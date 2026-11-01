@@ -14,6 +14,7 @@
 | 网易云乐迷团 | `/signin#netease` | 乐迷团每日任务、亲密值进度，支持快捷登录 |
 | 小黑盒 | `/signin#heybox` | 每日签到 + 三个分享任务，支持快捷登录 |
 | 酷狗音乐 | `/signin#kugou` | 每日领 VIP（听歌 / 广告），乐迷团信息，支持快捷登录 |
+| B站大会员大积分 | `/signin#bili-vip` | 签到、等级加速包、福利 / 浏览任务，复用 B站聊天记录登录态 |
 
 统一入口 `http://127.0.0.1:18000/`，左侧栏切换模块。
 
@@ -63,10 +64,28 @@ modules/
   taobao_chat/    淘宝：同上结构
   douyin_chat/    抖音：后端 + Vue 前端 + 提取器
   signin/         一键签到
+  bilibili_vip/   B站大会员大积分（core + routes + ui）
   spark/          火花
   starsky/
 main.py         启动入口（uvicorn，默认 18000 端口）
 ```
+
+### B站大会员大积分
+
+接口移植自 [RayWangQvQ/BiliBiliToolPro](https://github.com/RayWangQvQ/BiliBiliToolPro)（MIT）的 `VipBigPoint` 任务，登录态直接复用「B站聊天记录」的账号，不用重复扫码。
+
+实测结果：
+
+| 任务 | 结果 |
+| --- | --- |
+| 每日签到 / 大会员福利 / 权益页 | 正常 |
+| 大会员等级加速包 | 正常，但服务端要求先看过视频才给换 |
+| 浏览追番频道 / 影视频道 / 会员购 | 正常，各 +10，积分实测到账 |
+| 浏览装扮商城主页 | 走不通（`complete/v2` 稳定 `-400`），需手动打开装扮商城 |
+| 观看剧集内容 | 走不通，领取接口要 App 端 `access_key`，且要真看满 10 分钟 |
+| 购买类（影片 / 会员购 / 装扮 / 线下） | 程序一律不碰 |
+
+关键坑：App 侧参数 `build` 必须带且够新，否则接口统一回 `6007000 请将客户端更新至最新版本`（见上游 issue #1195）；字段名是 `task_code` 下划线形式，会员购埋点是 `eventId` 驼峰。
 
 ## 说明
 
