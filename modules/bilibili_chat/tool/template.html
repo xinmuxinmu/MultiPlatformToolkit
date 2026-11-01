@@ -30,6 +30,9 @@
   .conv:hover{background:#f2f4f6}
   .conv.on{background:var(--orange-soft);border-left-color:var(--orange)}
   .conv img{width:40px;height:40px;border-radius:50%;object-fit:cover;flex:0 0 40px;background:#e8eaed}
+  .ava-ph{display:grid;place-items:center;border-radius:50%;background:#e8eaed;color:#8a919b;
+    font-size:15px;font-weight:600;flex:0 0 40px;width:40px;height:40px;overflow:hidden}
+  .row .ava-ph{flex:0 0 34px;width:34px;height:34px;font-size:13px;margin-top:2px}
   .conv .body{flex:1;min-width:0}
   .conv .t{display:flex;justify-content:space-between;align-items:baseline;gap:6px}
   .conv .nm{font-size:13.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -168,9 +171,27 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const ME = DATA.me.uid;
 
+// 头像兜底：没有图片时用首字母占位，避免出现破图图标
+function avaHtml(src, name, cls) {
+  if (src) {
+    return '<img' + (cls ? ' class="' + cls + '"' : '') + ' src="' + esc(src) +
+      '" loading="lazy" alt="" onerror="this.outerHTML=\'<span class=&quot;ava-ph' + (cls ? ' ' + cls : '') + '&quot;>' + esc((name || '?').trim().charAt(0)) + '</span>\'">';
+  }
+  const ch = (name || '?').trim().charAt(0) || '?';
+  return '<span class="ava-ph' + (cls ? ' ' + cls : '') + '">' + esc(ch) + '</span>';
+}
+
 $('meName').textContent = DATA.me.name || '我';
 $('meStat').textContent = DATA.convs.length + ' 个会话 · ' + DATA.total.toLocaleString() + ' 条消息';
-$('meAvatar').src = DATA.me.avatar || '';
+if (DATA.me.avatar) {
+  $('meAvatar').src = DATA.me.avatar;
+} else {
+  const ph = document.createElement('div');
+  ph.className = 'ava-ph';
+  ph.style.cssText = 'width:38px;height:38px;flex:0 0 38px;font-size:14px';
+  ph.textContent = (DATA.me.name || '我').trim().charAt(0) || '我';
+  $('meAvatar').replaceWith(ph);
+}
 
 function fmtTime(ts){
   const d = new Date(ts), n = new Date();
@@ -199,10 +220,10 @@ DATA.convs.forEach((c, i) => {
   const div = document.createElement('div');
   div.className = 'conv';
   div.dataset.i = i;
-  div.innerHTML = '<img src="'+esc(c.avatar)+'" loading="lazy" alt="">'+
+  div.innerHTML = avaHtml(c.avatar, c.name) +
     '<div class="body"><div class="t"><span class="nm">'+esc(c.name)+(c.isGroup?'<span class="tag">群</span>':'')+'</span>'+
     '<span class="tm">'+(last?fmtTime(last.ts):'')+'</span></div>'+
-    '<div class="pv">'+(last?esc((last.text||'').replace(/\s+/g,' ').slice(0,42)):'暂无消息')+'</div></div>';
+    '<div class="pv">'+(last?(last.text&&last.text.trim()?esc(last.text.replace(/\s+/g,' ').slice(0,42)):(last.pics&&last.pics.length?'[图片]':'[非文本消息]')):'暂无消息')+'</div></div>';
   div.onclick = () => openConv(i);
   const del = document.createElement('button');
   del.type = 'button';
@@ -286,7 +307,7 @@ function openConv(i){
       inner = '<div class="bub">'+body+'</div>';
     }
     h += '<div class="row'+(self?' self':'')+'">'+
-      (self?'':'<img class="av" src="'+esc(m.avatar)+'" loading="lazy" alt="">')+
+      (self?'':avaHtml(m.avatar, m.fromName, 'av'))+
       '<div class="col">'+(self?'':'<div class="who">'+esc(m.fromName||'')+'</div>')+inner+'</div></div>';
   }
   box.innerHTML = h;
