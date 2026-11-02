@@ -79,13 +79,6 @@ PLATFORMS = {
     },
     # verify / save 由各模块导入时注册（签名与校验逻辑属于各自模块，
     # 放这里会形成循环依赖）
-    "heybox": {
-        "name": "小黑盒",
-        "login_url": "https://www.xiaoheihe.cn/",
-        "cookie_domains": ("xiaoheihe.cn", ".xiaoheihe.cn", "www.xiaoheihe.cn"),
-        "need": ("pkey",),
-        "port": 9351,
-    },
     "kugou": {
         "name": "酷狗音乐",
         "login_url": "https://www.kugou.com/",

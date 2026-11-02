@@ -141,7 +141,7 @@ body.tool-tab #btnSave,body.tool-tab #btnAll{display:none}
   <header>
     <div>
       <h1><span class="dot"></span>一键签到</h1>
-      <div class="sub">微博超话 · 吾爱破解 · 百度贴吧 · StarSky 签到 · 网易云乐迷团 · 小黑盒 · 酷狗音乐　本地运行，Cookie 不出本机</div>
+      <div class="sub">微博超话 · 吾爱破解 · 百度贴吧 · StarSky 签到 · 网易云乐迷团 · 酷狗音乐　本地运行，Cookie 不出本机</div>
     </div>
     <div class="actions">
       <a class="back-home" href="/">返回首页</a>
@@ -154,7 +154,6 @@ body.tool-tab #btnSave,body.tool-tab #btnAll{display:none}
     <button type="button" class="signin-tab active" data-tab="cookie" role="tab">微博 / 贴吧 / 吾爱</button>
     <button type="button" class="signin-tab" data-tab="starsky" role="tab">StarSky 签到</button>
     <button type="button" class="signin-tab" data-tab="netease" role="tab">网易云乐迷团</button>
-    <button type="button" class="signin-tab" data-tab="heybox" role="tab">小黑盒</button>
     <button type="button" class="signin-tab" data-tab="kugou" role="tab">酷狗音乐</button>
     <button type="button" class="signin-tab" data-tab="bili-vip" role="tab">B站大会员</button>
   </nav>
@@ -186,10 +185,6 @@ body.tool-tab #btnSave,body.tool-tab #btnAll{display:none}
 
   <div class="starsky-view" id="neteaseView" style="display:none">
     <iframe class="starsky-frame" id="neteaseFrame" title="网易云乐迷团" src="about:blank"></iframe>
-  </div>
-
-  <div class="starsky-view" id="heyboxView" style="display:none">
-    <iframe class="starsky-frame" id="heyboxFrame" title="小黑盒每日任务" src="about:blank"></iframe>
   </div>
 
   <div class="starsky-view" id="kugouView" style="display:none">
@@ -433,7 +428,6 @@ const statEl = document.getElementById('stat');
 const TOOLS = {
   starsky: {view: 'starskyView', frame: 'starskyFrame', src: '/starsky/'},
   netease: {view: 'neteaseView', frame: 'neteaseFrame', src: '/netease-fans/'},
-  heybox:  {view: 'heyboxView',  frame: 'heyboxFrame',  src: '/heybox/'},
   kugou:   {view: 'kugouView',   frame: 'kugouFrame',   src: '/kugou/'},
   'bili-vip': {view: 'biliVipView', frame: 'biliVipFrame', src: '/bili-vip/'},
 };

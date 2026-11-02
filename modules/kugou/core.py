@@ -538,12 +538,16 @@ class KugouDaily:
             period = client.period_info()
             if _int(period.get("status")) == 1:
                 team = {"period": period.get("data") or {}}
-                pid = _str((team["period"] or {}).get("period_id")
+                current = (team["period"] or {}).get("current_period_info") or {}
+                pid = _str(current.get("id")
+                           or (team["period"] or {}).get("period_id")
                            or (team["period"] or {}).get("id"))
                 if pid:
                     st = client.user_status(pid)
                     if _int(st.get("status")) == 1:
                         team["status"] = st.get("data") or {}
+                    elif _int(st.get("error_code")) == 51002:
+                        team["error"] = "乐迷团接口返回 51002：当前 token 不被概念版乐迷团认可，需要概念版登录"
                     tm = client.team_info(pid)
                     if _int(tm.get("status")) == 1:
                         team["team"] = tm.get("data") or {}
