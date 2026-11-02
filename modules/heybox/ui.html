@@ -78,7 +78,9 @@ html{--task-accent:var(--mp-text);--task-accent-fg:var(--mp-bg)}
         <input type="text" class="grow" id="heybox_id" placeholder="纯数字，登录后多数能从 Cookie 自动读出">
       </div>
       <div class="note">
-        Cookie 里要有 <b>pkey</b>。设备指纹 <code id="devId">—</code> 会自动生成并固定，别每次换。
+        Cookie 里要有 <b>pkey</b>。设备指纹 <code id="devId">—</code> 会自动生成并固定，别每次换。<br>
+        注意：网页登录只能保存账号信息；任务中心只认 App 抓包凭据，网页 pkey 调任务接口会返回
+        <code>relogin</code>。
       </div>
     </div>
 
