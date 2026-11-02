@@ -95,7 +95,7 @@ PLATFORMS = {
     },
     "qq_card": {
         "name": "QQ 打卡",
-        "login_url": "https://i.qq.com/",
+        "login_url": "https://ti.qq.com/signin/public/index.html",
         "cookie_domains": ("i.qq.com", "ti.qq.com", ".ti.qq.com", ".qq.com", "qq.com"),
         "need": ("p_skey",),
         "port": 9354,
