@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>QQ 音乐 · QQ 打卡</title>
+<title>QQ 音乐 · 每日签到</title>
 <script src="/shared/mp_task.js?v=1"></script>
 <link rel="stylesheet" href="/shared/mp_theme.css?v=1">
 <link rel="stylesheet" href="/shared/mp_task.css?v=2">
@@ -25,8 +25,8 @@ html[data-theme="purple"]{--task-accent:#c084fc;--task-accent-fg:#1b1229}
 <div class="wrap">
   <header>
     <div>
-      <h1><span class="dot"></span>QQ 音乐 / QQ 打卡</h1>
-      <div class="sub">QQ 音乐每日签到 · 日签卡 · 晚安卡　Cookie 只存在本机</div>
+      <h1><span class="dot"></span>QQ 音乐</h1>
+      <div class="sub">QQ 音乐每日签到　Cookie 只存在本机</div>
     </div>
     <div class="actions">
       <button class="btn-ghost" id="btnRefresh">刷新状态</button>
@@ -59,23 +59,6 @@ html[data-theme="purple"]{--task-accent:#c084fc;--task-accent-fg:#1b1229}
 
     <div class="card">
       <div class="panel-head">
-        <span class="t">QQ 日签卡 / 晚安卡</span>
-        <span class="s" id="cardState">未登录</span>
-      </div>
-      <div class="hero-line">
-        <div>
-          <div class="hero-main"><span class="status-dot" id="cardDot"></span>每日打卡</div>
-          <div class="hero-sub">日签卡和晚安卡各自独立，可分别开关</div>
-        </div>
-      </div>
-      <div class="result-line" style="margin-top:14px">
-        <span class="k">日签卡</span><span id="dayResult">还没有执行过</span><br>
-        <span class="k">晚安卡</span><span id="nightResult">还没有执行过</span>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="panel-head">
         <span class="t">运行日志</span>
         <span class="s" id="logStat">就绪</span>
       </div>
@@ -98,29 +81,6 @@ html[data-theme="purple"]{--task-accent:#c084fc;--task-accent-fg:#1b1229}
       <div class="note">
         需要 <b>uin</b> 和 <b>qqmusic_key</b>。签到走活动中心
         <code>ActCenterSignNewSvr.DoSignIn</code>。
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="panel-head">
-        <span class="t">QQ 打卡账号</span>
-        <button class="btn-main btn-sm" id="btnLoginCard">快捷登录</button>
-      </div>
-      <textarea id="card_cookie" placeholder="登录 QQ 打卡页后，把整行 Cookie 粘进来"
-                spellcheck="false" style="height:82px"></textarea>
-      <div class="field" style="margin-top:12px">
-        <label>日签卡</label>
-        <label class="switch"><input type="checkbox" id="day_enable"><span></span></label>
-      </div>
-      <div class="field">
-        <label>晚安卡</label>
-        <label class="switch"><input type="checkbox" id="night_enable"><span></span></label>
-      </div>
-      <div class="note">
-        需要 <b>uin</b>、<b>skey</b>、<b>p_skey</b>。这是手机 QQ 的打卡功能，
-        和 QQ 音乐账号相互独立。<br>
-        点「快捷登录」后会打开电脑端 QQ 扫码授权页；请扫<strong>弹窗里的登录码</strong>，
-        不要扫手机上打开的「QQ打卡·日签卡」体验页二维码。
       </div>
     </div>
   </div>
@@ -149,8 +109,8 @@ const API = '/qq/api';
 const EMBED = /[?&]embed=1/.test(location.search);
 if (EMBED) document.body.classList.add('embed');
 const $ = id => document.getElementById(id);
-const TITLES = {music: 'QQ 音乐 · 快捷登录', card: 'QQ 打卡 · 快捷登录'};
-const BTNS = {music: 'btnLoginMusic', card: 'btnLoginCard'};
+const TITLES = {music: 'QQ 音乐 · 快捷登录'};
+const BTNS = {music: 'btnLoginMusic'};
 
 let state = {};
 let since = 0, polling = null, running = false;
@@ -176,29 +136,20 @@ document.querySelectorAll('.tab').forEach(b => { b.onclick = () => setTab(b.data
 setTab((location.hash || '').replace('#', '') === 'settings' ? 'settings' : 'overview');
 
 function musicLoggedIn(cookie){ return /(?:^|;\s*)(?:qqmusic_key|qm_keyst)=/.test(cookie || ''); }
-function cardLoggedIn(cookie){ return /(?:^|;\s*)p_skey=/.test(cookie || ''); }
 
 function paintState(){
-  const mc = state.music || {}, cc = state.card || {}, cached = state.cached || {};
-  const mok = musicLoggedIn(mc.cookie), cok = cardLoggedIn(cc.cookie);
+  const mc = state.music || {}, cached = state.cached || {};
+  const mok = musicLoggedIn(mc.cookie);
   $('musicState').textContent = mok ? '已登录' : '未登录';
   $('musicDot').classList.toggle('ok', mok);
-  $('cardState').textContent = cok ? '已登录' : '未登录';
-  $('cardDot').classList.toggle('ok', cok);
   const m = cached.music || {};
   $('musicResult').textContent = m.msg || '还没有执行过';
-  const day = (cached.card || {}).day || {}, night = (cached.card || {}).night || {};
-  $('dayResult').textContent = day.msg || '还没有执行过';
-  $('nightResult').textContent = night.msg || '还没有执行过';
 }
 
 function fillForm(){
-  const mc = state.music || {}, cc = state.card || {};
+  const mc = state.music || {};
   $('music_cookie').value = mc.cookie || '';
   $('music_enable').checked = mc.sign_enable !== false;
-  $('card_cookie').value = cc.cookie || '';
-  $('day_enable').checked = cc.day_enable !== false;
-  $('night_enable').checked = cc.night_enable !== false;
 }
 
 async function refresh(){
@@ -218,8 +169,6 @@ async function saveAll(silent){
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
         music: {cookie: $('music_cookie').value, sign_enable: $('music_enable').checked},
-        card: {cookie: $('card_cookie').value, day_enable: $('day_enable').checked,
-               night_enable: $('night_enable').checked},
       }),
     });
     if (!r.ok) throw new Error();
@@ -393,10 +342,6 @@ async function grabLogin(){
 $('btnLoginMusic').onclick = () => {
   if (loginWhich === 'music' && (loginStage === 'waiting' || loginStage === 'launching')) grabLogin();
   else openLogin('music');
-};
-$('btnLoginCard').onclick = () => {
-  if (loginWhich === 'card' && (loginStage === 'waiting' || loginStage === 'launching')) grabLogin();
-  else openLogin('card');
 };
 $('loginGrab').onclick = grabLogin;
 $('loginClose').onclick = closeLogin;

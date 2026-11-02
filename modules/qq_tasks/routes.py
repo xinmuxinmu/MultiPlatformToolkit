@@ -26,11 +26,8 @@ def ping():
 
 @router.get("/api/state")
 def state():
-    music = core.load_music()
-    card = core.load_card()
     return {
-        "music": music,
-        "card": card,
+        "music": core.load_music(),
         "cached": core.load_state(),
         "running": core.TASK.running,
         "done": core.TASK.done,
@@ -41,21 +38,13 @@ def state():
 @router.post("/api/save")
 def save(body: dict = Body(...)):
     music = core.load_music()
-    card = core.load_card()
     m = body.get("music") or {}
-    c = body.get("card") or {}
     for key in core.DEFAULT_MUSIC:
         if key in m:
             music[key] = m[key]
-    for key in core.DEFAULT_CARD:
-        if key in c:
-            card[key] = c[key]
     if isinstance(music.get("cookie"), str):
         music["cookie"] = core.norm_cookie(music["cookie"])
-    if isinstance(card.get("cookie"), str):
-        card["cookie"] = core.norm_cookie(card["cookie"])
     core.save_music(music)
-    core.save_card(card)
     return {"ok": True}
 
 
