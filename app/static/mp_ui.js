@@ -380,6 +380,7 @@
     '正在启动火花浏览器': 'Starting spark browser',
     '火花浏览器已就绪（发消息 / 续火花共用）': 'Spark browser ready (shared by messaging and spark)',
     '火花浏览器已就绪（发消息 / 续火花共用），点击可重新检测': 'Spark browser ready (shared by messaging and spark). Click to re-check.',
+    '浏览器在线': 'Browser online',
     '删除会话': 'Delete conversation', '删除该会话数据': 'Delete conversation data', '删除该会话记录': 'Delete this conversation record',
     '删除中...': 'Deleting...', '暂无会话数据': 'No conversations',
     '确定删除会话「': 'Delete all data for conversation "', '」的所有数据？': '"?', '正在更新…': 'Updating…', '更新完成': 'Updated.',

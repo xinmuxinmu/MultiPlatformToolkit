@@ -213,19 +213,59 @@ _DEAD_SESSION_HINTS = (
 )
 
 
-def _probe_browser_alive():
-    """真正问一次 WebDriver 还在不在。"""
-    if not runtime.init or runtime.driver is None:
-        return False
+def _driver_responds():
+    """driver 是否还能应答。命中会话失效报错才算死，其余异常保守判活。"""
     try:
         runtime.driver.current_url
         return True
     except Exception as exc:
         msg = str(exc).lower()
-        if any(hint in msg for hint in _DEAD_SESSION_HINTS):
-            return False
-        # 命令超时之类的临时故障保守判活，避免误杀正在发消息的浏览器
+        return not any(hint in msg for hint in _DEAD_SESSION_HINTS)
+
+
+def _probe_browser_alive():
+    """真正问一次 WebDriver 还在不在。
+
+    定时任务在发消息时也会用同一个 driver，并发命令会让 current_url 报
+    no such window 之类的假死。所以先抢 Douyin 的 IO 锁：抢不到就直接判活，
+    抢到再探测，避免「任务正在发消息」被当成「用户关了浏览器」。
+    """
+    if not runtime.init or runtime.driver is None:
+        return False
+
+    io_lock = getattr(runtime.douyin, '_io_lock', None)
+
+    def _locked_probe():
+        if _driver_responds():
+            return True
+        # driver 忙时不重试，先让它把手上活干完
+        time.sleep(0.6)
+        return _driver_responds()
+
+    if io_lock is None:
+        return _locked_probe()
+    if not io_lock.acquire(blocking=False):
         return True
+    try:
+        if _driver_responds():
+            return True
+    finally:
+        try:
+            io_lock.release()
+        except Exception:
+            pass
+
+    # 第一次失败：隔 0.6 秒再确认一次，排除瞬时抖动造成的误判
+    time.sleep(0.6)
+    if not io_lock.acquire(blocking=False):
+        return True
+    try:
+        return _driver_responds()
+    finally:
+        try:
+            io_lock.release()
+        except Exception:
+            pass
 
 
 def browser_alive(force=False):

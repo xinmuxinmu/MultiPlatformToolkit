@@ -4,8 +4,12 @@
       <h2>会话</h2>
       <button
         class="spark-init-btn"
-        :class="{ ready: sparkReady === true, busy: sparkInitBusy, off: sparkReady === false }"
-        :disabled="sparkInitBusy"
+        :class="{
+          ready: sparkReady === true && !sparkInitBusy && !sparkChecking && !sparkHint,
+          busy: sparkInitBusy || sparkChecking,
+          off: sparkReady === false && !sparkInitBusy && !sparkChecking,
+        }"
+        :disabled="sparkInitBusy || sparkChecking"
         :title="sparkButtonTitle"
         @click="handleSparkButton"
       >
@@ -89,13 +93,15 @@ let searchTimeout = null
 // 火花浏览器（发消息 / 续火花共用）状态与初始化
 const sparkReady = ref(null)
 const sparkInitBusy = ref(false)
+const sparkChecking = ref(false)
 const sparkInitError = ref('')
 const sparkButtonLabel = ref('检测中…')
 const sparkButtonTitle = ref('检测火花浏览器状态')
 
-// 轮询间隔：用户手动关掉浏览器窗口后，按钮要在几秒内自己变回可点的「初始化」
-const SPARK_POLL_MS = 5000
-let sparkPollTimer = null
+// 状态只在两个时机刷新：进页面时一次、点按钮时一次。
+// 不做后台轮询——浏览器状态变化不频繁，没必要为它常驻定时器。
+const sparkHint = ref('')
+let sparkHintTimer = null
 
 async function fetchJson(url, timeoutMs = 8000) {
   const ctrl = new AbortController()
@@ -122,9 +128,14 @@ async function checkSparkReady(force = false) {
 }
 
 function updateSparkButton() {
-  if (sparkInitBusy.value) {
+  if (sparkHint.value) {
+    sparkButtonLabel.value = sparkHint.value
+  } else if (sparkInitBusy.value) {
     sparkButtonLabel.value = '初始化中…'
     sparkButtonTitle.value = '正在启动火花浏览器'
+  } else if (sparkChecking.value) {
+    sparkButtonLabel.value = '检测中…'
+    sparkButtonTitle.value = '正在检测火花浏览器状态'
   } else if (sparkInitError.value) {
     sparkButtonLabel.value = '初始化失败'
     sparkButtonTitle.value = sparkInitError.value
@@ -140,12 +151,34 @@ function updateSparkButton() {
   }
 }
 
-// 就绪时也允许点击：浏览器被手动关掉但状态没刷新时，点一下就能重新拉起
+// 点一下就闪一句结果，避免「点了没反应」的错觉
+function flashSpark(text, ms = 1300) {
+  clearTimeout(sparkHintTimer)
+  sparkHint.value = text
+  updateSparkButton()
+  sparkHintTimer = setTimeout(() => {
+    sparkHint.value = ''
+    updateSparkButton()
+  }, ms)
+}
+
+// 点击即检测：就绪态先强制核对一次，浏览器已被关掉就直接重新初始化
 async function handleSparkButton() {
-  if (sparkInitBusy.value) return
+  if (sparkInitBusy.value || sparkChecking.value) return
   if (sparkReady.value === true) {
-    await checkSparkReady(true)
-    if (sparkReady.value === true) return
+    // 先切到「检测中…」，否则探测这段时间按钮毫无反馈，看起来像没点上
+    sparkChecking.value = true
+    updateSparkButton()
+    try {
+      await checkSparkReady(true)
+    } finally {
+      sparkChecking.value = false
+      updateSparkButton()
+    }
+    if (sparkReady.value === true) {
+      flashSpark('浏览器在线')
+      return
+    }
   }
   await initSpark()
 }
@@ -248,12 +281,11 @@ async function confirmDelete() {
 
 onMounted(() => {
   checkSparkReady()
-  sparkPollTimer = setInterval(() => checkSparkReady(), SPARK_POLL_MS)
   window.addEventListener('spark-browser-ready', onSparkReadyEvent)
   fetchConversations()
 })
 onUnmounted(() => {
-  clearInterval(sparkPollTimer)
+  clearTimeout(sparkHintTimer)
   window.removeEventListener('spark-browser-ready', onSparkReadyEvent)
 })
 </script>
