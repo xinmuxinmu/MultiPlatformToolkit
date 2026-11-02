@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+import http.client
 import json
 import random
 import re
@@ -27,7 +28,7 @@ from app.paths import DATA_ROOT
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 APP_ID = "netease-fans"
 
 HOME = DATA_ROOT / "netease_fans"
@@ -45,6 +46,16 @@ EAPI_SEP = "-36cd479b6b5-"
 # 用 PC UA 打 eapi 会被当成异常客户端。
 UA_ANDROID = ("NeteaseMusic/9.2.85.250902150000(9020085);Dalvik/2.1.0 "
               "(Linux; U; Android 14; PGT-AN20 Build/UKQ1.231003.002)")
+
+# web 明文接口（评论、播放上报）用桌面 UA，注意 Cookie 里仍保留 os=android，
+# 这是 App 侧的会话特征，去掉反而容易触发验证。
+UA_DESKTOP = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+              "AppleWebKit/537.36 (KHTML, like Gecko) "
+              "Chrome/126.0.0.0 Safari/537.36")
+
+# 点赞缓存版本：v1 是没带 appLogExt 的空点，服务端不计数，
+# 升级后旧缓存整体作废，否则同一批笔记会被误判成「7 天内点过」而跳过。
+LIKED_VERSION = 2
 
 
 class FansError(Exception):
@@ -123,6 +134,9 @@ DEFAULT_CONFIG = {
     "like_note_count": 5,
     # 中风险：分享只上报进度，不产生公开动态
     "share_enable": True,
+    # 中风险：在任务指定的歌曲下面发一条评论，公开可见
+    "comment_enable": True,
+    "comment_text": "今天的循环就是这首，来打个卡～",
     # 高风险：会留下公开内容 / 等同刷播放量，默认关闭
     "publish_enable": False,
     "publish_title": "今天的循环是这首",
@@ -182,13 +196,19 @@ def load_liked() -> dict:
             return {}
     except Exception:
         return {}
+    if data.get("_v") != LIKED_VERSION:
+        # 旧版缓存记的是「点了但没计数」的无效点赞，作废重来。
+        return {}
     cutoff = int(time.time()) - 7 * 86400
-    return {k: v for k, v in data.items() if isinstance(v, int) and v >= cutoff}
+    return {k: v for k, v in data.items()
+            if k != "_v" and isinstance(v, int) and v >= cutoff}
 
 
 def save_liked(data: dict):
     try:
-        LIKED_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), "utf-8")
+        payload = dict(data)
+        payload["_v"] = LIKED_VERSION
+        LIKED_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), "utf-8")
     except OSError:
         pass
 
@@ -218,19 +238,36 @@ class Client:
     def _uid_from_cookie(ck: dict):
         return ck.get("__csrf") or ""
 
-    def eapi(self, path: str, payload: dict, query: str = "", timeout=15):
-        """path 形如 /eapi/fans/group/mission/all。"""
+    def eapi(self, path: str, payload: dict, query: str = "", timeout=15, retries=2):
+        """path 形如 /eapi/fans/group/mission/all。
+
+        interface3 偶尔会直接掐断连接（RemoteDisconnected），交给上层当业务
+        失败处理太冤，这里退避重试几次。
+        """
         sign_path = path.replace("/eapi/", "/api/", 1)
         url = EAPI_HOST + path + (("?" + query) if query else "")
         body = urllib.parse.urlencode(
             {"params": eapi_encrypt(sign_path, payload)}).encode()
-        status, text = _post(url, body, {
+        headers = {
             "User-Agent": UA_ANDROID,
             "Content-Type": "application/x-www-form-urlencoded",
             "Referer": WEB_HOST,
             "Accept": "*/*",
             "Cookie": self.cookie,
-        }, timeout=timeout)
+        }
+        last = None
+        status, text = 0, ""
+        for attempt in range(retries + 1):
+            try:
+                status, text = _post(url, body, headers, timeout=timeout)
+                break
+            except (OSError, http.client.HTTPException) as exc:
+                last = exc
+                if attempt >= retries:
+                    raise FansError(f"网络请求失败，重试 {retries} 次都没通：{exc}")
+                time.sleep(1.0 + attempt)
+        if not text and last is not None:
+            raise FansError(f"网络请求失败：{last}")
         try:
             data = json.loads(text)
         except Exception:
@@ -263,9 +300,19 @@ class Client:
                          {"artistSelf": "0", "cursor": "0",
                           "fansGroupId": group_id, "size": str(size)}, query=q)
 
-    def like_resource(self, thread_id: str):
+    def like_resource(self, thread_id: str, group_id: str):
+        """点赞乐迷笔记。
+
+        appLogExt 必须写明乐迷团归属，服务端才把这次点赞算进团任务；
+        传空串接口照样回 200，但进度一点不动——之前 5 条只涨 1 就是栽在这。
+        """
+        ext = json.dumps({
+            "addRefer": {"resourceId": str(group_id), "resourceType": "E"},
+            "multiRefer": [],
+            "fansGroupId": str(group_id),
+        }, separators=(",", ":"), ensure_ascii=False)
         return self.eapi("/eapi/resource/like",
-                         {"threadId": thread_id, "appLogExt": ""})
+                         {"threadId": str(thread_id), "appLogExt": ext})
 
     def song_like(self, song_id, like=True):
         return self.eapi("/eapi/song/like", {
@@ -273,13 +320,47 @@ class Client:
             "time": "3", "checkToken": "",
         })
 
-    def share_progress(self, resource_id, group_id, action="share", rtype="4"):
+    def share_progress(self, resource_id, rtype="4", action="share"):
+        """分享进度上报。
+
+        fansGroupId 按 App 真实请求填字符串 "null"，不是团 ID —— 填团 ID
+        服务端会直接忽略这次上报。
+        """
+        flag = "null"
         q = (f"resourceId={resource_id}&action={action}"
-             f"&fansGroupId={group_id}&resourceType={rtype}")
+             f"&fansGroupId={flag}&resourceType={rtype}")
         return self.eapi("/eapi/fans/group/mission/forward/progress", {
             "resourceId": str(resource_id), "action": action,
-            "fansGroupId": group_id, "resourceType": rtype,
+            "fansGroupId": flag, "resourceType": str(rtype),
         }, query=q)
+
+    def comment_song(self, thread_id: str, content: str, timeout=15):
+        """给歌曲发一条评论，走 web 明文接口。"""
+        ck = parse_cookie(self.cookie)
+        m = re.search(r"_(\d+)$", thread_id or "")
+        song_id = m.group(1) if m else ""
+        referer = f"{WEB_HOST}/song?id={song_id}" if song_id else f"{WEB_HOST}/"
+        body = urllib.parse.urlencode({
+            "threadId": thread_id,
+            "content": content,
+            "csrf_token": ck.get("__csrf", ""),
+        }).encode()
+        status, text = _post(WEB_HOST + "/api/v1/resource/comments/add", body, {
+            "User-Agent": UA_DESKTOP,
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Referer": referer,
+            "Cookie": self.cookie,
+        }, timeout=timeout)
+        try:
+            data = json.loads(text)
+        except Exception:
+            raise FansError(
+                f"评论接口返回的不是 JSON（HTTP {status}）：{text[:160]}")
+        code = data.get("code")
+        if code != 200:
+            raise FansError(
+                f"评论没发出去，code={code}：{data.get('message') or ''}")
+        return data
 
     def publish_note(self, title: str, msg: str, board_id: str, group_name: str):
         activity = json.dumps([{
@@ -307,9 +388,7 @@ class Client:
         }
         body = json.dumps({"logs": json.dumps([log], ensure_ascii=False)}).encode()
         return _post(WEB_HOST + "/api/feedback/weblog", body, {
-            "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                           "AppleWebKit/537.36 (KHTML, like Gecko) "
-                           "Chrome/126.0.0.0 Safari/537.36"),
+            "User-Agent": UA_DESKTOP,
             "Content-Type": "application/json",
             "Referer": WEB_HOST + "/",
             "Cookie": self.cookie,
@@ -318,31 +397,96 @@ class Client:
 
 # ---------------------------------------------------------------- 解析
 
-def _parse_action(raw) -> dict:
-    """任务按钮里的 url 是一段 JSON 字符串，藏着 actionMnbName / songIds。"""
-    if not raw or not isinstance(raw, str):
+def _loads_json(raw) -> dict:
+    """任务里的参数既可能是 dict，也可能是一段 JSON 字符串。"""
+    if isinstance(raw, dict):
+        return raw
+    if not isinstance(raw, str) or not raw.strip():
         return {}
     try:
         data = json.loads(raw)
     except Exception:
         return {}
-    if not isinstance(data, dict):
+    return data if isinstance(data, dict) else {}
+
+
+def _query_of(link: str) -> dict:
+    """从 orpheus://comment?threadId=xxx 这种深链里抠查询参数。"""
+    if not link:
         return {}
-    params = data.get("actionMnbParams") or {}
-    out = {
-        "name": data.get("actionMnbName") or "",
-        "song_ids": params.get("songIds") or [],
-        "resource_id": params.get("resourceId") or params.get("songId") or "",
-    }
-    if not out["resource_id"] and out["song_ids"]:
-        out["resource_id"] = out["song_ids"][0]
+    try:
+        qs = urllib.parse.urlparse(link).query
+    except Exception:
+        return {}
+    out = {}
+    for key, val in urllib.parse.parse_qsl(qs):
+        out.setdefault(key, val)
+    return out
+
+
+def _first(data: dict, *keys):
+    for key in keys:
+        val = data.get(key)
+        if val not in (None, "", [], {}):
+            return val
+    return ""
+
+
+def _parse_action(mission: dict) -> dict:
+    """把任务的按钮动作拆成可执行参数。
+
+    按钮 url 是 JSON 字符串，目前见过三种形态，缺一种就会整条漏掉：
+      mnb     播放歌曲，歌曲 ID 在 actionMnbParams.songIds
+      custom  分享歌曲，歌曲 ID 在 actionCustomParams.progressParams.resourceId
+      open    评论任务，只有 orpheus://comment?threadId=... 深链
+    """
+    out = {"type": "", "name": "", "song_ids": [], "resource_id": "",
+           "resource_type": "", "thread_id": "", "link": ""}
+
+    data = {}
+    for raw in ((mission.get("button") or {}).get("url"),
+                (mission.get("iconUi") or {}).get("targetUrl"),
+                mission.get("logInfo"),
+                mission.get("missionDetail")):
+        data = _loads_json(raw)
+        if data:
+            break
+    if not data:
+        return out
+
+    out["type"] = data.get("actionType") or ""
+    if out["type"] == "mnb":
+        out["name"] = data.get("actionMnbName") or ""
+        params = data.get("actionMnbParams") or {}
+    elif out["type"] == "custom":
+        out["name"] = data.get("actionCustomName") or ""
+        params = data.get("actionCustomParams") or {}
+        # 分享任务把真正要上报的参数又裹了一层 progressParams
+        inner = params.get("progressParams") if isinstance(params, dict) else None
+        if isinstance(inner, dict):
+            params = {**params, **inner}
+    elif out["type"] == "open":
+        out["link"] = data.get("actionOpenLink") or ""
+        params = _query_of(out["link"])
+    else:
+        params = data
+
+    if not isinstance(params, dict):
+        params = {}
+
+    song_ids = _first(params, "songIds", "songId", "trackIds", "trackId")
+    if isinstance(song_ids, (int, str)):
+        song_ids = [song_ids] if song_ids else []
+    out["song_ids"] = song_ids if isinstance(song_ids, list) else []
+    out["resource_id"] = _first(params, "resourceId", "songId") or (
+        out["song_ids"][0] if out["song_ids"] else "")
+    out["resource_type"] = str(_first(params, "resourceType") or "")
+    out["thread_id"] = str(_first(params, "threadId") or "")
     return out
 
 
 def _mission_item(m: dict, accelerate=False) -> dict:
-    action = _parse_action((m.get("button") or {}).get("url"))
-    if not action:
-        action = _parse_action((m.get("iconUi") or {}).get("targetUrl"))
+    action = _parse_action(m)
     return {
         "id": m.get("missionId"),
         "type": m.get("missionType") or "",
@@ -377,6 +521,11 @@ def parse_missions(data: dict) -> list:
 def classify(item: dict) -> str:
     """把任务标题归到具体动作上。标题会改，所以按关键词匹配。"""
     text = f"{item.get('title','')}{item.get('subtitle','')}"
+    link = ((item.get("action") or {}).get("link") or "").lower()
+    # 加速任务完成后副标题会被服务端改写成「任务已完成，明日0点更新」，
+    # 所以除了关键词，再看一眼按钮深链：comment 就是评论任务。
+    if "comment" in link or "评论" in text:
+        return "comment"
     if "播放" in text or "听歌" in text or "收听" in text:
         return "play"
     if "笔记" in text and ("发布" in text or "图文" in text):
@@ -673,11 +822,26 @@ class NeteaseFans:
             return self._like_notes(client, group_id, need or 1)
 
         if kind == "share":
+            # resourceId 在 custom 动作的 progressParams 里，_parse_action 已经挖出来了
             rid = action.get("resource_id")
             if not rid:
                 self.log("warn", "分享任务没带资源 ID，跳过")
                 return False
-            client.share_progress(rid, group_id)
+            rtype = action.get("resource_type") or "4"
+            client.share_progress(rid, rtype)
+            return True
+
+        if kind == "comment":
+            tid = action.get("thread_id")
+            if not tid:
+                self.log("warn", "评论任务没解析出 threadId，跳过")
+                return False
+            text = str(self.cfg.get("comment_text") or "").strip()
+            if not text:
+                self.log("warn", "评论文案是空的，先去设置里填一句")
+                return False
+            client.comment_song(tid, text)
+            self.log("info", f"评论已发出：{text}")
             return True
 
         if kind == "publish":
@@ -698,7 +862,8 @@ class NeteaseFans:
             if not ids:
                 self.log("warn", "播放任务没带歌曲 ID，跳过")
                 return False
-            count = min(len(ids), max(1, int(self.cfg.get("play_count") or 1)))
+            # 任务要几条就播几条，play_count 只当作下限，别自己少播一半
+            count = min(len(ids), max(need or 1, int(self.cfg.get("play_count") or 1)))
             for sid in ids[:count]:
                 client.weblog_play(sid)
                 self._sleep()
@@ -709,19 +874,26 @@ class NeteaseFans:
     def _like_notes(self, client, group_id, need) -> bool:
         liked = load_liked()
         try:
-            records = (client.feed(group_id, size=20).get("data") or {}).get("records") or []
+            records = (client.feed(group_id, size=min(50, max(10, need + 5)))
+                       .get("data") or {}).get("records") or []
         except FansError as exc:
             raise FansError(f"拉推荐笔记失败：{exc}")
-        targets = [r for r in records
-                   if r.get("threadId") and str(r["threadId"]) not in liked
-                   and not r.get("owner")]
+        targets = []
+        for r in records:
+            tid = str(r.get("threadId") or "")
+            if not tid or tid in liked or r.get("owner"):
+                continue
+            # info.liked 已经赞过的再点一次不会涨进度，别浪费次数
+            if (r.get("info") or {}).get("liked"):
+                continue
+            targets.append(tid)
         if not targets:
             self.log("warn", "推荐流里没有可点赞的新笔记")
             return False
         hit = 0
-        for r in targets[:need]:
-            client.like_resource(str(r["threadId"]))
-            liked[str(r["threadId"])] = int(time.time())
+        for tid in targets[:need]:
+            client.like_resource(tid, group_id)
+            liked[tid] = int(time.time())
             hit += 1
             self._sleep()
         save_liked(liked)

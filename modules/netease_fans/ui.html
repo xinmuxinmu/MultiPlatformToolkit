@@ -125,6 +125,12 @@ html[data-theme="purple"]{--task-accent:#c084fc;--task-accent-fg:#1b1229}
         <label class="switch"><input type="checkbox" id="share_enable"><span></span></label>
       </div>
       <div class="field">
+        <label style="color:#b45309">评论歌曲</label>
+        <input type="text" class="grow" value="会在歌曲评论区公开留下一条评论" disabled
+               style="border:0;background:transparent;color:#b45309;padding-left:0">
+        <label class="switch"><input type="checkbox" id="comment_enable"><span></span></label>
+      </div>
+      <div class="field">
         <label style="color:#b91c1c">发布图文笔记</label>
         <input type="text" class="grow" value="会在你的主页公开留下内容" disabled
                style="border:0;background:transparent;color:#b91c1c;padding-left:0">
@@ -137,16 +143,17 @@ html[data-theme="purple"]{--task-accent:#c084fc;--task-accent-fg:#1b1229}
         <label class="switch"><input type="checkbox" id="play_enable"><span></span></label>
       </div>
       <div class="note danger">
-        <b>后两项默认关闭，用不用你自己决定。</b>网易云对「非法挂机软件」发过站内信，
+        <b>后三项默认关闭，用不用你自己决定。</b>网易云对「非法挂机软件」发过站内信，
         会回收外挂获取的收益并警告，持续违规会进一步处罚。播放上报是被点名过的动作，
         发布笔记会在你的主页留下公开内容，风险都比前三条高一个量级。
+        评论虽然默认开着，但内容是公开的，文案请在下面自己改。
       </div>
     </div>
 
     <div class="card">
       <div class="panel-head">
-        <span class="t">笔记文案</span>
-        <span class="s">发布图文笔记时用</span>
+        <span class="t">文案</span>
+        <span class="s">发布笔记 / 评论任务时用</span>
       </div>
       <div class="field">
         <label>标题</label>
@@ -156,6 +163,11 @@ html[data-theme="purple"]{--task-accent:#c084fc;--task-accent-fg:#1b1229}
         <label style="padding-top:9px">正文</label>
         <textarea id="publish_text" class="grow"></textarea>
       </div>
+      <div class="field" style="align-items:flex-start">
+        <label style="padding-top:9px">评论文案</label>
+        <textarea id="comment_text" class="grow"></textarea>
+      </div>
+      <div class="note">评论文案会原样发到任务指定的歌曲下面，别写太长、别带链接。</div>
     </div>
 
     <div class="card">
@@ -208,9 +220,9 @@ const API = '/netease-fans/api';
 const EMBED = /[?&]embed=1/.test(location.search);
 if (EMBED) document.body.classList.add('embed');
 
-const TEXT_IDS = ['cookie','artist_name','group_id','publish_title','publish_text'];
+const TEXT_IDS = ['cookie','artist_name','group_id','publish_title','publish_text','comment_text'];
 const NUM_IDS = ['gap_min','gap_max','play_count','like_note_count'];
-const BOOL_IDS = ['collect_enable','like_note_enable','share_enable','publish_enable','play_enable'];
+const BOOL_IDS = ['collect_enable','like_note_enable','share_enable','comment_enable','publish_enable','play_enable'];
 
 let state = {config:{}};
 let since = 0, polling = null, running = false;
