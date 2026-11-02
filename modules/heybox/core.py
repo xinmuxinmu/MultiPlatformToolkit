@@ -320,6 +320,19 @@ class Client:
         return self._send(host, endpoint, extra or {}, body)
 
     # ---- 业务
+    def profile(self):
+        """网页登录态校验接口。
+
+        /task/list_v2/ 不认网页 pkey（返回 relogin），不能拿它判断有没有登录；
+        restore_login 是网页自己恢复登录用的，登录态有效时返回 profile。
+        """
+        return self.web("/account/restore_login", {
+            "app": "heybox", "heybox_id": self.heybox_id, "os_type": "web",
+            "x_app": "heybox_website", "x_client_type": "web",
+            "x_os_type": "Windows", "x_client_version": "",
+            "client_type": "web", "web_version": "3.0", "version": "999.0.4",
+        })
+
     def tasks(self):
         return self.web("/task/list_v2/")
 
@@ -625,38 +638,26 @@ class HeyboxDaily:
 # ---------------------------------------------------------------- 快捷登录
 
 def _verify_heybox(cookie: str) -> tuple[bool, str]:
-    """任务列表接口带登录态时会返回 user；游客态返回 status:login。
+    """用网页自己的 restore_login 验登录态。
 
-    这一步不能省：web.xiaoheihe.cn 一进站就会下发一堆游客 Cookie，
-    光看「有没有新 Cookie」会把游客态当成登录成功。
+    不能再用 /task/list_v2/ 验：那个接口不认网页 pkey，登录成功也返回
+    relogin，会把正常账号永远判成“还没登录”。restore_login 才代表网页登录态。
     """
     cookie = norm_cookie(cookie)
-    if not parse_cookie(cookie).get("pkey"):
+    ck = parse_cookie(cookie)
+    if not ck.get("pkey"):
         return False, ""
-    query = {
-        "app": "heybox", "os_type": "web", "x_app": "heybox",
-        "x_client_type": "web", "x_os_type": "Android",
-        "x_client_version": "1.3.398", "version": "999.0.4",
-        **web_signature("/task/list_v2/"),
-    }
-    url = WEB_HOST + "/task/list_v2/?" + urllib.parse.urlencode(query)
-    req = urllib.request.Request(url, headers={
-        "User-Agent": UA,
-        "Accept": "application/json, text/plain, */*",
-        "Origin": "https://web.xiaoheihe.cn",
-        "Referer": "https://web.xiaoheihe.cn/",
-        "Cookie": cookie,
-    })
+    hid = (ck.get("x_heybox_id") or ck.get("heybox_id")
+           or ck.get("user_heybox_id") or "")
+    if not str(hid).isdigit():
+        return False, ""
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(_decode(resp.read()))
-    except Exception:
+        data = Client(cookie, str(hid)).profile()
+    except Exception:  # noqa: BLE001
         return False, ""
-    if str(data.get("status") or "") in ("login", "relogin"):
-        return False, ""
-    user = data.get("user") or {}
-    if user.get("userid"):
-        return True, str(user.get("username") or user["userid"])
+    prof = (data.get("result") or {}).get("profile") or {}
+    if prof.get("heybox_id"):
+        return True, str(prof.get("nickname") or prof["heybox_id"])
     return False, ""
 
 
@@ -664,7 +665,7 @@ def _save_login_cookie(cookie: str, who: str):
     cfg = load_config()
     cfg["cookie"] = cookie
     ck = parse_cookie(cookie)
-    hid = ck.get("x_heybox_id") or ck.get("heybox_id")
+    hid = ck.get("x_heybox_id") or ck.get("heybox_id") or ck.get("user_heybox_id")
     if hid and str(hid).isdigit():
         cfg["heybox_id"] = str(hid)
     save_config(cfg)

@@ -271,7 +271,11 @@ class LoginSession:
             self._set(stage="error", msg=f"平台校验中断：{exc}。重新点一次「快捷登录」")
             return self.snapshot()
         if not ok:
-            self._set(msg="读到 Cookie 了，但平台还没认这个登录，登完再点一次")
+            if self.key == "kugou":
+                self._set(stage="error",
+                          msg="网页登录的 token 调不了酷狗任务接口，请关掉窗口，改用「扫码登录」")
+            else:
+                self._set(msg="读到 Cookie 了，但平台还没认这个登录，登完再点一次")
             return self.snapshot()
 
         if self._save(cookie, who):
