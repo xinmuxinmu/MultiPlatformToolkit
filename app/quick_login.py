@@ -95,7 +95,11 @@ PLATFORMS = {
     },
     "qq_card": {
         "name": "QQ 打卡",
-        "login_url": "https://ti.qq.com/signin/public/index.html",
+        # 真正的桌面扫码授权；ti.qq.com/signin 那个码只是手机体验入口。
+        "login_url": ("https://xui.ptlogin2.qq.com/cgi-bin/xlogin?appid=716027609"
+                      "&daid=383&style=33&hide_title_bar=1&low_login=0"
+                      "&qlogin_auto_login=1&no_verifyimg=1&link_target=blank"
+                      "&target=self&s_url=https%3A%2F%2Fti.qq.com%2Fsignin%2Fpublic%2Findex.html"),
         "cookie_domains": ("i.qq.com", "ti.qq.com", ".ti.qq.com", ".qq.com", "qq.com"),
         "need": ("p_skey",),
         "port": 9354,
