@@ -41,7 +41,6 @@ def _kill_port(port: int):
         pass
 
 TIMEOUT = 300          # 二维码一般几分钟换一次，等太久没意义
-SHOT_EVERY = 12        # 把页面截图推给前端，省得用户去翻浏览器窗口
 
 
 # ---------------------------------------------------------------- 平台定义
@@ -189,7 +188,7 @@ class LoginSession:
         if not page:
             raise RuntimeError("浏览器没有可用标签页")
         ws = _WS(page["webSocketDebuggerUrl"])
-        # 只开 Page 域（截图用）。读 Cookie 不依赖 Network 域，
+        # 只开 Page 域。读 Cookie 不依赖 Network 域，
         # 开了反而要吞登录页那一串事件。
         ws.call("Page.enable", msg_id=1)
         return ws
@@ -209,27 +208,29 @@ class LoginSession:
     def _cookies(self) -> list:
         return self._call("Network.getCookies").get("result", {}).get("cookies") or []
 
-    def _shot(self) -> str:
-        data = (self._call("Page.captureScreenshot",
-                           {"format": "png", "fromSurface": False}, timeout=60)
-                .get("result", {}).get("data") or "")
-        return "data:image/png;base64," + data if data else ""
-
     def _wait(self, port: int):
-        """把连接保持住，定时推一张页面截图给前端。不自动抓 Cookie。"""
+        """保持等待连接，定时探一下浏览器是否还活着。不自动抓 Cookie。
+
+        不再往状态里塞整页截图：一张截图 1MB 左右，前端每 1.5 秒拉一次状态，
+        既拖慢页面，也容易让人误以为卡住。浏览器窗口本身就是可见的。
+        """
         spec = self.spec
         self._set(stage="waiting",
                   msg=f"在弹出的窗口里登录{spec['name']}，登完回到这里点一下按钮")
         deadline = time.time() + TIMEOUT
-        next_shot = time.time() + 4
+        misses = 0
         while time.time() < deadline:
-            if self._finished.wait(2):
+            if self._finished.wait(3):
                 return
-            if time.time() >= next_shot:
-                next_shot = time.time() + SHOT_EVERY
-                shot = self._shot()
-                if shot:
-                    self._set(qr=shot)
+            try:
+                _http_json(f"http://127.0.0.1:{port}/json/version", timeout=1)
+                misses = 0
+            except Exception:  # noqa: BLE001
+                misses += 1
+                if misses >= 2:
+                    self._set(stage="error",
+                              msg="登录窗口已经关闭了，重新点一次「快捷登录」")
+                    return
         self._set(stage="error", msg="等太久了窗口已经关掉，重新点一次「快捷登录」")
 
     # ---- 用户点按钮时立刻抓一次
@@ -245,7 +246,8 @@ class LoginSession:
 
         cookies = self._cookies()
         if not cookies:
-            self._set(msg="读不到浏览器 Cookie，确认窗口没被关掉")
+            self._set(stage="error",
+                      msg="读不到浏览器 Cookie：登录窗口已经断开，重新点一次「快捷登录」")
             return self.snapshot()
 
         mine = [c for c in cookies
@@ -263,7 +265,11 @@ class LoginSession:
             return self.snapshot()
 
         verifier = spec.get("verify")
-        ok, who = verifier(cookie) if verifier else (True, "")
+        try:
+            ok, who = verifier(cookie) if verifier else (True, "")
+        except Exception as exc:  # noqa: BLE001
+            self._set(stage="error", msg=f"平台校验中断：{exc}。重新点一次「快捷登录」")
+            return self.snapshot()
         if not ok:
             self._set(msg="读到 Cookie 了，但平台还没认这个登录，登完再点一次")
             return self.snapshot()
