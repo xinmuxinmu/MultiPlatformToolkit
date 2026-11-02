@@ -81,9 +81,12 @@ PLATFORMS = {
     # 放这里会形成循环依赖）
     "kugou": {
         "name": "酷狗音乐",
+        # 酷狗手机网页不给登录入口（m.kugou.com/user、/login 都是空页），
+        # 只能走 PC 站。站点标记为 PC 端不影响拿 web token，勋章 H5 同域可用。
         "login_url": "https://www.kugou.com/",
-        "cookie_domains": ("kugou.com", ".kugou.com", "www.kugou.com"),
-        "need": ("KuGoo", "token", "userid"),
+        "cookie_domains": ("kugou.com", ".kugou.com", "www.kugou.com",
+                           "m.kugou.com", "login-user.kugou.com"),
+        "need": ("token", "userid"),
         "port": 9352,
     },
     "qq_music": {

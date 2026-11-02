@@ -84,6 +84,7 @@ LOGIN_CODES = {51002, 20018}
 
 DEFAULT_CONFIG = {
     "cookie": "",
+    "web_cookie": "",             # 网页登录态，勋章 H5 用这一份
     "userid": "",
     "token": "",
     "mid": "",
@@ -732,35 +733,44 @@ def qr_poll(key: str, platform: str = "standard") -> dict:
 # ---------------------------------------------------------------- 快捷登录
 
 def _verify_kugou(cookie: str) -> tuple[bool, str]:
-    """用账号接口确认 token 真的能用，别把游客 Cookie 当成登录态。"""
+    """网页登录的 token 只给勋章 / H5 用，调不了 App 接口（20006/20018）。
+
+    以前这里硬要用 my_info 校验，结果网页登录永远被判失败、逼着用户去扫码，
+    而扫码拿到的 App token 又调不了勋章接口——两边互相堵死。现在只要有
+    token + userid 就收下，存进 web_cookie，徽章接口用它。
+    """
     fields = kugoo_fields(cookie)
     if not fields["token"] or not fields["userid"].isdigit():
         return False, ""
+    nickname = ""
     cfg = load_config()
     try:
         info = Client(norm_cookie(cookie), fields["userid"], fields["token"],
                       fields["mid"] or cfg.get("mid", ""),
                       fields["dfid"] or cfg.get("dfid", "-"),
                       cfg.get("platform", "standard")).my_info()
+        nickname = profile_of(info)["nickname"]
     except Exception:  # noqa: BLE001
-        return False, ""
-    prof = profile_of(info)
-    if prof["nickname"]:
-        return True, prof["nickname"]
-    return False, ""
+        pass
+    return True, nickname or fields["userid"]
 
 
 def _save_login_cookie(cookie: str, who: str):
+    """网页登录的 Cookie 单独存 web_cookie。
+
+    别覆盖扫码拿到的 App token：听歌 / 广告领 VIP 走 App 接口，
+    网页 token 上去会直接 20006；反过来勋章 H5 只认网页这套。
+    """
     cfg = load_config()
     field = kugoo_fields(cookie)
-    cfg["cookie"] = cookie
-    if field["token"]:
+    cfg["web_cookie"] = cookie
+    if not cfg.get("token") and field["token"]:
         cfg["token"] = field["token"]
-    if field["userid"].isdigit():
+    if not str(cfg.get("userid") or "").isdigit() and field["userid"].isdigit():
         cfg["userid"] = field["userid"]
-    if field["mid"]:
+    if not cfg.get("mid") and field["mid"]:
         cfg["mid"] = field["mid"]
-    if field["dfid"]:
+    if not cfg.get("dfid") and field["dfid"]:
         cfg["dfid"] = field["dfid"]
     save_config(cfg)
 
