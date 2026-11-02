@@ -9,3 +9,6 @@ node_modules/
 # 本地工作记忆与临时产物
 .workbuddy/
 _tmp_dy_extract/
+_tmp_shot/
+_tmp_*.py
+.tmp_*.py
