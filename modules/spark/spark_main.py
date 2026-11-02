@@ -177,6 +177,11 @@ def Home(authorization: str = Header(None)):
 
 # ===== 浏览器会话与账号切换的内部工具 =====
 
+# 存活探测结果缓存（定义在 _quit_browser 之前，避免模块导入期引用未定义变量）
+_ALIVE_CACHE_SECONDS = 2.0
+_alive_state = {'checked_at': 0.0, 'alive': False}
+
+
 def _quit_browser():
     """关闭当前浏览器并清理会话状态（不动账号数据）"""
     try:
@@ -191,6 +196,59 @@ def _quit_browser():
     runtime.login_pending = None
     _user_cache['nickname'] = ''
     _user_cache['avatar'] = ''
+    _alive_state['alive'] = False
+    _alive_state['checked_at'] = 0.0
+
+
+# ===== 浏览器存活探测 =====
+# runtime.init 只代表「曾经初始化成功」。用户手动关掉浏览器窗口后它仍是 True，
+# 前端就会一直显示「浏览器就绪」且按钮不可点，看起来就是「误关闭后打不开了」。
+# 这里补一次轻量探测，失效即清状态，让前端把按钮变回可点的「初始化」。
+# 这些报错说明会话已经彻底没了（窗口被关 / chromedriver 退出）
+_DEAD_SESSION_HINTS = (
+    'invalid session id', 'chrome not reachable', 'not reachable',
+    'disconnected', 'no such window', 'target window already closed',
+    'session deleted', 'connection refused', 'max retries exceeded',
+    'failed to establish a new connection',
+)
+
+
+def _probe_browser_alive():
+    """真正问一次 WebDriver 还在不在。"""
+    if not runtime.init or runtime.driver is None:
+        return False
+    try:
+        runtime.driver.current_url
+        return True
+    except Exception as exc:
+        msg = str(exc).lower()
+        if any(hint in msg for hint in _DEAD_SESSION_HINTS):
+            return False
+        # 命令超时之类的临时故障保守判活，避免误杀正在发消息的浏览器
+        return True
+
+
+def browser_alive(force=False):
+    """浏览器是否可用；已失效时顺手清掉初始化状态，好让前端重新初始化。"""
+    if not runtime.init or runtime.driver is None:
+        _alive_state['alive'] = False
+        return False
+    now = time.monotonic()
+    if not force and now - _alive_state['checked_at'] < _ALIVE_CACHE_SECONDS:
+        return _alive_state['alive']
+    alive = _probe_browser_alive()
+    _alive_state['checked_at'] = now
+    _alive_state['alive'] = alive
+    if not alive:
+        print('⚠️ 检测到浏览器窗口已被关闭，初始化状态已重置，可重新点击「初始化」')
+        _quit_browser()
+    return alive
+
+
+def _mark_browser_alive():
+    """初始化成功后刷新探测缓存，避免旧结果让前端闪一下「初始化」。"""
+    _alive_state['checked_at'] = time.monotonic()
+    _alive_state['alive'] = True
 
 
 def _douyin_logged_in():
@@ -325,6 +383,7 @@ def _start_browser_session(account_id=None):
     else:
         # 登录态存回与聊天导出共用的 Cookie 存档：导出那边 profile 掉登录时能直接恢复
         _save_current_cookies_to_account()
+    _mark_browser_alive()
     browser_name = normalize_browser_name(config.get('browser_name'))
     return {'code': 200, 'data': f'{get_browser_label(browser_name)} 初始化成功'}
 
@@ -342,6 +401,7 @@ def Init(authorization: str = Header(None)):
             try:
                 # 会话还活着才算是「重复初始化」
                 runtime.driver.current_url
+                _mark_browser_alive()
                 return {'code': 200, 'data': 'init Repeated!'}
             except Exception:
                 # 浏览器被用户手动关掉，但状态还留着：清掉再重新初始化
@@ -350,11 +410,11 @@ def Init(authorization: str = Header(None)):
 
 
 @app.get('/Api/GetInit')  # 获取初始化状态
-def GetInit(authorization: str = Header(None)):
+def GetInit(authorization: str = Header(None), force: bool = Query(False)):
     auth_err = require_auth(authorization)
     if auth_err:
         return auth_err
-    return {'code': 200, 'data': 'Yes' if runtime.init else 'No'}
+    return {'code': 200, 'data': 'Yes' if browser_alive(force=force) else 'No'}
 
 
 # ===== 多账号管理 =====

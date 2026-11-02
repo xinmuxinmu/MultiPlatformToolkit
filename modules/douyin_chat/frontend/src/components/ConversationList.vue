@@ -5,9 +5,9 @@
       <button
         class="spark-init-btn"
         :class="{ ready: sparkReady === true, busy: sparkInitBusy, off: sparkReady === false }"
-        :disabled="sparkInitBusy || sparkReady === true"
+        :disabled="sparkInitBusy"
         :title="sparkButtonTitle"
-        @click="initSpark"
+        @click="handleSparkButton"
       >
         <span class="dot"></span>{{ sparkButtonLabel }}
       </button>
@@ -93,11 +93,28 @@ const sparkInitError = ref('')
 const sparkButtonLabel = ref('检测中…')
 const sparkButtonTitle = ref('检测火花浏览器状态')
 
-async function checkSparkReady() {
+// 轮询间隔：用户手动关掉浏览器窗口后，按钮要在几秒内自己变回可点的「初始化」
+const SPARK_POLL_MS = 5000
+let sparkPollTimer = null
+
+async function fetchJson(url, timeoutMs = 8000) {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
-    const res = await fetch('/spark/api/Api/GetInit')
-    const data = await res.json()
+    const res = await fetch(url, { signal: ctrl.signal })
+    return await res.json()
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function checkSparkReady(force = false) {
+  if (sparkInitBusy.value) return
+  try {
+    // force=1 跳过后端 2 秒缓存，用于用户主动点击时的强制核对
+    const data = await fetchJson(`/spark/api/Api/GetInit${force ? '?force=1' : ''}`)
     sparkReady.value = data.data === 'Yes'
+    if (sparkReady.value) sparkInitError.value = ''
   } catch (e) {
     sparkReady.value = false
   }
@@ -113,7 +130,7 @@ function updateSparkButton() {
     sparkButtonTitle.value = sparkInitError.value
   } else if (sparkReady.value === true) {
     sparkButtonLabel.value = '浏览器就绪'
-    sparkButtonTitle.value = '火花浏览器已就绪（发消息 / 续火花共用）'
+    sparkButtonTitle.value = '火花浏览器已就绪（发消息 / 续火花共用），点击可重新检测'
   } else if (sparkReady.value === false) {
     sparkButtonLabel.value = '初始化'
     sparkButtonTitle.value = '初始化火花浏览器（发消息 / 续火花共用）'
@@ -121,6 +138,16 @@ function updateSparkButton() {
     sparkButtonLabel.value = '检测中…'
     sparkButtonTitle.value = '检测火花浏览器状态'
   }
+}
+
+// 就绪时也允许点击：浏览器被手动关掉但状态没刷新时，点一下就能重新拉起
+async function handleSparkButton() {
+  if (sparkInitBusy.value) return
+  if (sparkReady.value === true) {
+    await checkSparkReady(true)
+    if (sparkReady.value === true) return
+  }
+  await initSpark()
 }
 
 async function initSpark() {
@@ -221,10 +248,12 @@ async function confirmDelete() {
 
 onMounted(() => {
   checkSparkReady()
+  sparkPollTimer = setInterval(() => checkSparkReady(), SPARK_POLL_MS)
   window.addEventListener('spark-browser-ready', onSparkReadyEvent)
   fetchConversations()
 })
 onUnmounted(() => {
+  clearInterval(sparkPollTimer)
   window.removeEventListener('spark-browser-ready', onSparkReadyEvent)
 })
 </script>
@@ -266,7 +295,8 @@ onUnmounted(() => {
 .spark-init-btn .dot {
   width: 6px; height: 6px; border-radius: 50%; background: #f59e0b; flex: none;
 }
-.spark-init-btn.ready { color: #16a34a; border-color: rgba(22,163,74,.3); background: rgba(22,163,74,.06); cursor: default; }
+.spark-init-btn.ready { color: #16a34a; border-color: rgba(22,163,74,.3); background: rgba(22,163,74,.06); cursor: pointer; }
+.spark-init-btn.ready:hover:not(:disabled) { border-color: rgba(22,163,74,.55); background: rgba(22,163,74,.12); }
 .spark-init-btn.ready .dot { background: #22c55e; }
 .spark-init-btn.busy .dot { background: #2563eb; animation: spark-pulse 1s infinite; }
 .spark-init-btn.off:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
