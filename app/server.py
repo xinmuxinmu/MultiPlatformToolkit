@@ -20,6 +20,7 @@ from modules.starsky.routes import router as starsky_router  # noqa: E402
 from modules.bilibili_chat.routes import router as bili_chat_router  # noqa: E402
 from modules.netease_fans.routes import router as netease_fans_router  # noqa: E402
 from modules.kugou.routes import router as kugou_router  # noqa: E402
+from modules.qq_tasks.routes import router as qq_tasks_router  # noqa: E402
 from modules.bilibili_vip.routes import router as bili_vip_router  # noqa: E402
 
 
@@ -59,6 +60,7 @@ app = FastAPI(title="多平台聊天记录导出及签到续火花", lifespan=li
 app.include_router(signin_router)
 app.include_router(netease_fans_router)
 app.include_router(kugou_router)
+app.include_router(qq_tasks_router)
 app.include_router(bili_vip_router)
 app.include_router(weibo_chat_router)
 app.include_router(starsky_router)

@@ -91,10 +91,10 @@ def login_status():
 
 
 @router.post("/api/qr-start")
-def qr_start():
+def qr_start(platform: str = "standard"):
     """扫码登录：拿二维码。比网页登录靠谱——网页 cookie 里的 token 调不了 App 接口。"""
     try:
-        return {"ok": True, **core.qr_start()}
+        return {"ok": True, **core.qr_start(platform)}
     except core.KugouError as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
     except Exception as exc:  # noqa: BLE001
@@ -102,11 +102,11 @@ def qr_start():
 
 
 @router.get("/api/qr-poll")
-def qr_poll(key: str = ""):
+def qr_poll(key: str = "", platform: str = "standard"):
     if not key:
         return JSONResponse({"ok": False, "error": "缺少二维码 key"}, status_code=400)
     try:
-        return {"ok": True, **core.qr_poll(key)}
+        return {"ok": True, **core.qr_poll(key, platform)}
     except core.KugouError as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
     except Exception as exc:  # noqa: BLE001

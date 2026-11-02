@@ -86,6 +86,20 @@ PLATFORMS = {
         "need": ("KuGoo", "token", "userid"),
         "port": 9352,
     },
+    "qq_music": {
+        "name": "QQ 音乐",
+        "login_url": "https://y.qq.com/",
+        "cookie_domains": ("y.qq.com", ".y.qq.com", ".qq.com", "qq.com"),
+        "need": ("qqmusic_key", "qm_keyst"),
+        "port": 9353,
+    },
+    "qq_card": {
+        "name": "QQ 打卡",
+        "login_url": "https://i.qq.com/",
+        "cookie_domains": ("i.qq.com", "ti.qq.com", ".ti.qq.com", ".qq.com", "qq.com"),
+        "need": ("p_skey",),
+        "port": 9354,
+    },
 }
 
 

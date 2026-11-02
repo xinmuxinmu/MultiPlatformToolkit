@@ -179,6 +179,13 @@ html[data-theme="purple"]{--task-accent:#c084fc;--task-accent-fg:#1b1229}
   <div class="modal-box">
     <h3>酷狗音乐 · 扫码登录</h3>
     <div class="msg" id="qrMsg">正在拿二维码…</div>
+    <div class="field" style="margin-top:10px">
+      <label>登录版本</label>
+      <select class="grow" id="qrPlatform">
+        <option value="standard">标准版（普通酷狗）</option>
+        <option value="lite">概念版（乐迷团需要）</option>
+      </select>
+    </div>
     <div style="text-align:center;margin:14px 0">
       <img id="qrShot" alt="登录二维码" style="display:none;width:190px;height:190px">
     </div>
@@ -562,17 +569,18 @@ $('loginClose').onclick = closeLogin;
 $('loginModal').onclick = e => { if (e.target.id === 'loginModal') closeLogin(); };
 
 // ---- 扫码登录（拿到的 token 才能调 App 任务接口）
-let qrTimer = null, qrKey = '';
+let qrTimer = null, qrKey = '', qrPlatform = 'standard';
 function qrStop(){ if (qrTimer){ clearInterval(qrTimer); qrTimer = null; } }
 function closeQr(){ qrStop(); $('qrModal').classList.remove('show'); }
 async function openQr(){
   qrStop();
   qrKey = '';
+  qrPlatform = $('qrPlatform').value || 'standard';
   $('qrMsg').textContent = '正在拿二维码…';
   $('qrShot').style.display = 'none';
   $('qrModal').classList.add('show');
   try{
-    const r = await fetch(API + '/qr-start', {method: 'POST'});
+    const r = await fetch(API + '/qr-start?platform=' + encodeURIComponent(qrPlatform), {method: 'POST'});
     const d = await r.json();
     if (!d.ok) throw new Error(d.error || '拿不到二维码');
     qrKey = d.key;
@@ -589,7 +597,8 @@ async function openQr(){
     if (!qrKey) return;
     let d;
     try{
-      const r = await fetch(API + '/qr-poll?key=' + encodeURIComponent(qrKey));
+      const r = await fetch(API + '/qr-poll?key=' + encodeURIComponent(qrKey)
+        + '&platform=' + encodeURIComponent(qrPlatform));
       d = await r.json();
     }catch(e){ return; }
     if (!d.ok){ $('qrMsg').textContent = d.error || '查询失败'; return; }

@@ -662,10 +662,17 @@ LOGIN_HOST = "https://login-user.kugou.com"
 QR_TEXT = f"https://h5.kugou.com/apps/loginQRCode/html/index.html?appid={APPID_STD}&"
 
 
-def _login_get(path: str, extra: dict, mid: str) -> dict:
+def _platform_ids(platform: str) -> tuple[int, int]:
+    if str(platform or "").lower() == "lite":
+        return APPID_LITE, CLIENTVER_LITE
+    return APPID_STD, CLIENTVER_STD
+
+
+def _login_get(path: str, extra: dict, mid: str, platform: str = "standard") -> dict:
     now = int(time.time())
-    p = {"dfid": "-", "mid": mid, "uuid": "-", "appid": APPID_STD,
-         "clientver": CLIENTVER_STD, "clienttime": now, **extra}
+    appid, clientver = _platform_ids(platform)
+    p = {"dfid": "-", "mid": mid, "uuid": "-", "appid": appid,
+         "clientver": clientver, "clienttime": now, **extra}
     p["signature"] = sign_web(p)
     url = LOGIN_HOST + path + "?" + urllib.parse.urlencode(p)
     req = urllib.request.Request(url, headers={
@@ -682,23 +689,26 @@ def _login_get(path: str, extra: dict, mid: str) -> dict:
         raise KugouError(f"登录接口返回的不是 JSON：{_decode(raw)[:150]}")
 
 
-def qr_start() -> dict:
+def qr_start(platform: str = "standard") -> dict:
     """取二维码。图是接口直接给的 base64，不用自己画。"""
     cfg = load_config()
+    appid, _ = _platform_ids(platform)
     data = _login_get("/v2/qrcode", {
-        "appid": 1001, "type": 1, "plat": 4,       # 拿 key 用 1001，校验时才用 1005
-        "qrcode_txt": QR_TEXT, "srcappid": SRCAPPID}, cfg["mid"])
+        "appid": 1001, "type": 1, "plat": 4,       # 拿 key 用 1001，校验时才用目标 appid
+        "qrcode_txt": f"https://h5.kugou.com/apps/loginQRCode/html/index.html?appid={appid}&",
+        "srcappid": SRCAPPID}, cfg["mid"], platform)
     body = data.get("data") or {}
     if not body.get("qrcode"):
         raise KugouError(f"没拿到二维码（error_code={data.get('error_code')}）")
     return {"key": body["qrcode"], "img": body.get("qrcode_img") or ""}
 
 
-def qr_poll(key: str) -> dict:
+def qr_poll(key: str, platform: str = "standard") -> dict:
     cfg = load_config()
+    appid, clientver = _platform_ids(platform)
     data = _login_get("/v2/get_userinfo_qrcode", {
-        "plat": 4, "appid": APPID_STD, "srcappid": SRCAPPID,
-        "qrcode": key, "dev": "-"}, cfg["mid"])
+        "plat": 4, "appid": appid, "clientver": clientver, "srcappid": SRCAPPID,
+        "qrcode": key, "dev": "-"}, cfg["mid"], platform)
     body = data.get("data") or {}
     state = _int(body.get("status"))
     if state == 4:
@@ -708,6 +718,7 @@ def qr_poll(key: str) -> dict:
             return {"stage": "error", "msg": "扫码通过了但没拿到 token，再扫一次试试"}
         cfg["token"] = token
         cfg["userid"] = userid
+        cfg["platform"] = "lite" if str(platform).lower() == "lite" else "standard"
         cfg["cookie"] = f"token={token}; userid={userid}; kg_mid={cfg['mid']}"
         save_config(cfg)
         return {"stage": "success", "msg": "登录成功，token 已保存", "userid": userid}

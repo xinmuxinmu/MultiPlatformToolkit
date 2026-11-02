@@ -155,6 +155,7 @@ body.tool-tab #btnSave,body.tool-tab #btnAll{display:none}
     <button type="button" class="signin-tab" data-tab="starsky" role="tab">StarSky 签到</button>
     <button type="button" class="signin-tab" data-tab="netease" role="tab">网易云乐迷团</button>
     <button type="button" class="signin-tab" data-tab="kugou" role="tab">酷狗音乐</button>
+    <button type="button" class="signin-tab" data-tab="qq" role="tab">QQ 音乐 / 打卡</button>
     <button type="button" class="signin-tab" data-tab="bili-vip" role="tab">B站大会员</button>
   </nav>
 
@@ -189,6 +190,10 @@ body.tool-tab #btnSave,body.tool-tab #btnAll{display:none}
 
   <div class="starsky-view" id="kugouView" style="display:none">
     <iframe class="starsky-frame" id="kugouFrame" title="酷狗音乐每日领 VIP" src="about:blank"></iframe>
+  </div>
+
+  <div class="starsky-view" id="qqView" style="display:none">
+    <iframe class="starsky-frame" id="qqFrame" title="QQ 音乐与 QQ 打卡" src="about:blank"></iframe>
   </div>
 
   <div class="starsky-view" id="biliVipView" style="display:none">
@@ -429,6 +434,7 @@ const TOOLS = {
   starsky: {view: 'starskyView', frame: 'starskyFrame', src: '/starsky/'},
   netease: {view: 'neteaseView', frame: 'neteaseFrame', src: '/netease-fans/'},
   kugou:   {view: 'kugouView',   frame: 'kugouFrame',   src: '/kugou/'},
+  qq:      {view: 'qqView',      frame: 'qqFrame',      src: '/qq/'},
   'bili-vip': {view: 'biliVipView', frame: 'biliVipFrame', src: '/bili-vip/'},
 };
 
