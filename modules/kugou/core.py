@@ -34,7 +34,7 @@ from cryptography.hazmat.primitives.serialization import load_pem_public_key
 
 from app.paths import DATA_ROOT
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 
 HOME = DATA_ROOT / "kugou"
 HOME.mkdir(parents=True, exist_ok=True)
@@ -50,6 +50,13 @@ SALT_REGISTER = "1014"
 APPID_STD, CLIENTVER_STD = 1005, 20489
 APPID_LITE, CLIENTVER_LITE = 3116, 11440
 SRCAPPID = 2919
+
+# 乐迷勋章（守护值）接口。和乐迷团 /youth/v1/ut/* 是两个系统：
+# 勋章走 singerdiscussgo.kugou.com，appid 用账号自己的（标准版 1005），
+# token 直传（不用 h5+RSA 包装），签名是 web 盐、clienttime 毫秒、body 参与签名。
+MEDAL_HOST = "https://singerdiscussgo.kugou.com"
+MEDAL_APPID_STD, MEDAL_APPID_LITE = 1005, 3116
+MEDAL_CLIENTVER = "20000"
 
 UA = "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi"
 UA_LISTEN = "Android13-1070-10566-201-0-ReportPlaySongToServerProtocol-wifi"
@@ -96,6 +103,8 @@ DEFAULT_CONFIG = {
     "ad_gap": 30,                 # 每次领 VIP 之间等多久（秒）
     "gap_min": 2.0,
     "gap_max": 4.0,
+    "medal_enable": True,          # 乐迷勋章 · 每日守护
+    "medal_singer_id": "188254",  # 守护的歌手 id（默认封茗囧菌）
 }
 
 
@@ -401,6 +410,113 @@ class Client:
                                with_period=bool(period_id), period_id=period_id)
 
 
+# ---------------------------------------------------------------- 乐迷勋章（守护值）
+#
+# 勋章系统和乐迷团（/youth/v1/ut/*）完全独立：
+#   GET  /v1/task/progress_list   任务列表 + 等级/守护值/排名（classify_id = 歌手 id）
+#   POST /v1/task/finish/sign_in  每日守护，body {"singer_id": <歌手id>}
+#   POST /v1/task/finish/sign_in_additional  追加守护（App 里要"看视频"），
+#        body {"singer_id": id, "auth_sign": md5(f"{userid}_{singer_id}_{clienttimems}")}
+# 签名规则：web 盐、clienttime 用毫秒、uuid=mid、POST 时 JSON body 参与 md5。
+# 20217 = token 不属于这个 appid（要换回 1005）；30008 = auth_sign 算法不对。
+
+class MedalClient:
+    def __init__(self, userid: str, token: str, mid: str = "",
+                 dfid: str = "-", log=None):
+        self.log = log or (lambda *_: None)
+        self.userid = str(userid or "").strip()
+        self.token = str(token or "").strip()
+        if not self.token or not self.userid.isdigit():
+            raise KugouError("勋章接口需要 userid + token（扫码登录拿的那种）")
+        self.mid = str(mid or "").strip() or calc_mid(str(uuid.uuid4()))
+        self.dfid = str(dfid or "-").strip() or "-"
+        # 实测：勋章接口只认账号自己的 appid（标准版 1005），
+        # 传 1058/1014 会报 20017 invalid signature，概念版 3116 没验证过。
+        self.appid = MEDAL_APPID_STD
+
+    def _call(self, path: str, params: dict | None = None,
+              data: dict | None = None) -> dict:
+        now_ms = int(time.time() * 1000)
+        p = {
+            "appid": self.appid, "clientver": MEDAL_CLIENTVER,
+            "clienttime": now_ms, "mid": self.mid, "uuid": self.mid,
+            "dfid": self.dfid, "srcappid": SRCAPPID,
+            "userid": self.userid, "token": self.token,
+        }
+        p.update(params or {})
+        body = ""
+        if data is not None:
+            body = json.dumps(data, separators=(",", ":"), ensure_ascii=False)
+        p["signature"] = sign_web(p, body)
+        url = MEDAL_HOST + path + "?" + urllib.parse.urlencode(p)
+        req = urllib.request.Request(
+            url, data=body.encode("utf-8") if data is not None else None,
+            method="POST" if data is not None else "GET",
+            headers={
+                "User-Agent": UA,
+                "Content-Type": "application/json; charset=utf-8",
+                "Cookie": f"token={self.token}; userid={self.userid}",
+            })
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                raw = resp.read()
+        except urllib.error.HTTPError as exc:
+            raw = exc.read()
+            if not raw:
+                raise KugouError(f"勋章接口返回 HTTP {exc.code}")
+        except Exception as exc:  # noqa: BLE001
+            raise KugouError(f"勋章接口请求失败：{exc}")
+        try:
+            payload = json.loads(_decode(raw))
+        except Exception:
+            raise KugouError(f"勋章接口返回的不是 JSON：{_decode(raw)[:150]}")
+        code = _int(payload.get("errcode"))
+        if code == 20017:
+            raise KugouError("勋章接口说 token 校验失败（20017）。"
+                             "多半是 token 过期了，重新扫码登录一次", code)
+        if code in LOGIN_CODES:
+            raise KugouError("登录态失效了，重新快捷登录一次", code)
+        return payload
+
+    # ---- 只读
+    def progress_list(self, classify_id: str) -> dict:
+        return self._call("/v1/task/progress_list",
+                          {"type": "singer_energy", "classify_id": str(classify_id)})
+
+    # ---- 执行
+    def sign_in(self, singer_id: int) -> dict:
+        return self._call("/v1/task/finish/sign_in",
+                          data={"singer_id": int(singer_id)})
+
+    def sign_in_additional(self, singer_id: int) -> dict:
+        now_ms = int(time.time() * 1000)
+        auth = md5(f"{self.userid}_{int(singer_id)}_{now_ms}")
+        return self._call("/v1/task/finish/sign_in_additional",
+                          data={"singer_id": int(singer_id), "auth_sign": auth})
+
+
+def medal_of(payload: dict) -> dict:
+    """progress_list 的返回压成 UI 好用的形状。"""
+    data = (payload or {}).get("data") or {}
+    uls = data.get("user_level_status") or {}
+    tasks = ((data.get("medal_task_data") or {}).get("task_list")) or []
+    return {
+        "level": _int(uls.get("level")) or 0,
+        "integral": _int(uls.get("cur_integral")) or 0,
+        "today": _int(uls.get("today_integral")) or 0,
+        "signed": _int(uls.get("has_singer_sign")) == 1,
+        "follow_day": _int(uls.get("follow_day")) or 0,
+        "rank": _str(uls.get("rank") or "—"),
+        "tasks": [
+            {"name": _str(t.get("name")), "task_id": _str(t.get("task_id")),
+             "finish": _int(t.get("finish_times")) or 0,
+             "need": _int(t.get("times")) or 1,
+             "integral": _int(t.get("integral")) or 0}
+            for t in tasks
+        ],
+    }
+
+
 # ---------------------------------------------------------------- 小工具
 
 def _int(v):
@@ -515,6 +631,25 @@ class KugouDaily:
                       c.get("token", ""), c.get("mid", ""), c.get("dfid", "-"),
                       c.get("platform", "standard"), self.log)
 
+    def _medal_client(self) -> MedalClient:
+        c = self.cfg
+        return MedalClient(c.get("userid", ""), c.get("token", ""),
+                           c.get("mid", ""), c.get("dfid", "-"), self.log)
+
+    def _medal_singer(self) -> int:
+        return _int(self.cfg.get("medal_singer_id")) or 188254
+
+    def _fetch_medal(self) -> dict:
+        """只读勋章状态。读不到就返回 error 字符串，不拖垮整个 refresh。"""
+        try:
+            mc = self._medal_client()
+            payload = mc.progress_list(self._medal_singer())
+            if _int(payload.get("errcode")) != 0:
+                return {"error": f"勋章接口 errcode {payload.get('errcode')}：{payload.get('errmsg')}"}
+            return medal_of(payload)
+        except KugouError as exc:
+            return {"error": str(exc)}
+
     def _sleep(self):
         a = float(self.cfg.get("gap_min") or 2)
         b = float(self.cfg.get("gap_max") or 4)
@@ -556,12 +691,16 @@ class KugouDaily:
         except KugouError as exc:
             team = {"error": str(exc)}
 
+        medal = self._fetch_medal()
+
         info = {
             **prof,
             "listen_done": bool(prog.get("listen")),
             "ad_done": _int(prog.get("ad")) or 0,
             "ad_max": _int(self.cfg.get("ad_times")) or 8,
             "team": team,
+            "medal": medal,
+            "medal_singer_id": self._medal_singer(),
             "fetched_at": int(time.time()),
             "progress": prog,
         }
@@ -630,11 +769,69 @@ class KugouDaily:
                         self.log("info", f"等 {gap} 秒再领下一次")
                         time.sleep(gap)
 
+        # 3) 乐迷勋章：每日守护 + 追加守护（实测每次各 +10 守护值）
+        medal = {}
+        if not self.cfg.get("medal_enable", True):
+            self.log("info", "乐迷勋章关着，跳过")
+        else:
+            try:
+                mc = self._medal_client()
+                sid = self._medal_singer()
+                info = self._fetch_medal()
+                if info.get("error"):
+                    self.log("error", f"乐迷勋章读不到状态：{info['error']}")
+                    fail += 1
+                else:
+                    tasks = {t["task_id"]: t for t in info.get("tasks", [])}
+                    sign = tasks.get("sign_in") or {}
+                    if sign.get("finish", 0) >= (sign.get("need") or 1):
+                        self.log("info", "每日守护今天已经做过了")
+                        skipped += 1
+                    else:
+                        r = mc.sign_in(sid)
+                        d = r.get("data") or {}
+                        if _int(r.get("errcode")) == 0:
+                            self.log("success", f"每日守护：守护值 +{d.get('incr_score', '?')}，"
+                                                f"累计 {d.get('total_score', '?')}，排名 {d.get('rank_num', '?')}")
+                            done += 1
+                        else:
+                            self.log("warn", f"每日守护：{r.get('errmsg')}（errcode {r.get('errcode')}）")
+                            fail += 1
+                        self._sleep()
+                    # 追加守护：App 里要求先看视频，接口只校验 auth_sign = md5(userid_singerid_clienttime)
+                    # today 里包含签到给的分数，追加一次后再查一次判断有没有用
+                    before = info.get("today") or 0
+                    r2 = mc.sign_in_additional(sid)
+                    if _int(r2.get("errcode")) == 0:
+                        time.sleep(1)
+                        after_info = self._fetch_medal()
+                        gained = (after_info.get("today") or 0) - before
+                        if gained > 0:
+                            self.log("success", f"追加守护：守护值 +{gained}，今日合计 +{after_info.get('today')}")
+                            done += 1
+                            medal = after_info
+                        else:
+                            self.log("info", "追加守护接口说成功，但今天追加次数已用完")
+                            skipped += 1
+                    else:
+                        # 30001 = 当天追加次数已用完，不算失败
+                        if _int(r2.get("errcode")) == 30001:
+                            self.log("info", f"追加守护：{r2.get('errmsg')}")
+                            skipped += 1
+                        else:
+                            self.log("warn", f"追加守护：{r2.get('errmsg')}（errcode {r2.get('errcode')}）")
+                            fail += 1
+            except KugouError as exc:
+                self.log("error", f"乐迷勋章失败：{exc}")
+                fail += 1
+
         after = load_state()
         after.update({"listen_done": bool(prog.get("listen")),
                       "ad_done": _int(prog.get("ad")) or 0,
                       "progress": prog,
                       "fetched_at": int(time.time())})
+        if medal:
+            after["medal"] = medal
         try:
             prof2 = profile_of(client.my_info())
             if prof2["nickname"]:
