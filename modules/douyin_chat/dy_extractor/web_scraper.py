@@ -7,8 +7,10 @@ import hashlib
 import os
 import re
 import random
+import subprocess
 import sys
 import time
+import urllib.request
 from datetime import datetime, timedelta
 
 # Fix Windows console encoding: allow unencodable chars (e.g. \xa0, emoji,
@@ -62,6 +64,60 @@ def get_user_data_dir() -> str:
 # 只认 cookies，不需要 msToken/a_bogus（与 batch_play_info 同理）。
 USER_INFO_API = "https://www.douyin.com/aweme/v1/web/im/user/info/"
 BATCH_USER_INFO = 20
+
+
+# ── 共享浏览器（与火花共用一个窗口）────────────────────────────
+SHARED_CDP_PORT = paths.SHARED_BROWSER_CDP_PORT
+
+
+def _shared_cdp_alive(timeout: float = 1.0) -> bool:
+    """共享浏览器（火花初始化的那个）是否在调试端口上。"""
+    try:
+        with urllib.request.urlopen(
+                f"http://127.0.0.1:{SHARED_CDP_PORT}/json/version", timeout=timeout) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
+def _spark_config_paths():
+    """火花 config.json 的候选位置（统一应用 / 独立运行各一份）。"""
+    out = []
+    if os.environ.get("SPARK_HOME"):
+        out.append(os.path.join(os.environ["SPARK_HOME"], "data", "config.json"))
+    out.append(os.path.join(os.path.dirname(paths.DATA_DIR), "spark", "data", "config.json"))
+    return out
+
+
+def _shared_browser_exe() -> str | None:
+    """自动拉起共享浏览器用的程序：跟火花配置用同一个，profile 才不会串。"""
+    name, custom = ("edge" if os.name == "nt" else "chrome"), ""
+    for cfg_path in _spark_config_paths():
+        try:
+            with open(cfg_path, encoding="utf-8") as f:
+                cfg = json.load(f)
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+            continue
+        name = str(cfg.get("browser_name") or name).strip().lower() or name
+        custom = str(cfg.get("browser_path") or "").strip()
+        break
+    if custom and os.path.isfile(custom):
+        return custom
+    candidates = {
+        "edge": [
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+        ],
+        "chrome": [
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        ],
+    }.get(name) or []
+    for path in candidates:
+        if os.path.isfile(path):
+            return path
+    return None
+
 
 
 # ── DOM Selectors (from discovery) ──────────────────────────────
@@ -304,6 +360,9 @@ class WebChatScraper:
         # 本轮是否已经清过 SDK 缓存并重载过。一轮最多重载一次：清过之后
         # 每个会话点开都会自然触发 get_by_conversation，直接被动捕获即可。
         self._sdk_cache_cleared = False
+        # 是否跑在与火花共用的共享浏览器上（close 时只断开不关窗口）
+        self._shared = False
+        self._shared_browser = None
 
     async def launch(self):
         user_data_dir = get_user_data_dir()
@@ -312,6 +371,135 @@ class WebChatScraper:
         self._db_conn = get_db()
 
         self.pw = await async_playwright().start()
+        if not await self._try_attach_shared_browser():
+            await self._launch_own_browser()
+        # 全程被动收集 SDK 的会话请求：清缓存重载之前，很多会话本来就会发
+        # get_by_conversation，能直接从中拿到 short_id 就不用再折腾页面。
+        try:
+            self.page.on("request", self._on_sdk_request)
+        except Exception:
+            pass
+        self._short_ids = self._load_short_id_cache()
+        if self._short_ids:
+            print(f"[+] 已加载 {len(self._short_ids)} 个会话的 short_id 缓存")
+        print("[+] 复用已初始化的浏览器（与火花共用）" if self._shared else "[+] 浏览器已启动")
+
+    async def _try_attach_shared_browser(self) -> bool:
+        """接入共享浏览器（火花初始化的那个）；没有就先自动拉起一个。
+
+        返回 False 时回退到自建独立浏览器（例如共享浏览器登录的不是
+        当前账号，或本机找不到 Edge/Chrome）。
+        """
+        from dy_common import accounts as acc
+
+        active = acc.get_active()
+        if not active:
+            # 没有账号概念时无从校验身份，直接走独立浏览器
+            return False
+        if not _shared_cdp_alive():
+            await self._launch_shared_browser(active)
+        if not _shared_cdp_alive():
+            return False
+        try:
+            self._shared_browser = await self.pw.chromium.connect_over_cdp(
+                f"http://127.0.0.1:{SHARED_CDP_PORT}", timeout=5000)
+        except Exception as e:
+            print(f"[*] 共享浏览器接入失败：{e}，改用独立浏览器")
+            return False
+        ctx = self._shared_browser.contexts[0] if self._shared_browser.contexts else None
+        if not ctx:
+            print("[*] 共享浏览器没有可用窗口，改用独立浏览器")
+            return False
+        # 在共享浏览器里新开一个标签页干活，不动火花正在用的页面
+        page = None
+        ok = False
+        try:
+            page = await ctx.new_page()
+            ok = await self._shared_login_ok(ctx, page, active)
+        except Exception as e:
+            print(f"[*] 共享浏览器接入失败：{e}，改用独立浏览器")
+        if not ok:
+            if page:
+                try:
+                    await page.close()
+                except Exception:
+                    pass
+            return False
+        self.context = ctx
+        self.page = page
+        self._shared = True
+        return True
+
+    async def _launch_shared_browser(self, active) -> bool:
+        """没初始化时自动拉起共享浏览器（火花的 profile + 登录态直接沿用）。"""
+        from dy_common import accounts as acc
+
+        exe = _shared_browser_exe()
+        if not exe:
+            print("[*] 找不到 Edge/Chrome，跳过共享浏览器")
+            return False
+        profile = os.path.join(acc.account_dir(active["id"]), "spark_profile")
+        os.makedirs(profile, exist_ok=True)
+        args = [
+            exe,
+            f"--user-data-dir={profile}",
+            f"--remote-debugging-port={SHARED_CDP_PORT}",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--disable-blink-features=AutomationControlled",
+            "--window-size=1400,900",
+            CHAT_URL,
+        ]
+        if os.environ.get("HEADLESS", "false").lower() == "true":
+            args += ["--headless=new", "--disable-gpu", "--mute-audio"]
+        print("[*] 尚未初始化浏览器，正在自动拉起共享浏览器...")
+        try:
+            # 不带 breakaway 标记：留在主程序的 Job 里，主程序退出时一并结束
+            subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as e:
+            print(f"[!] 共享浏览器启动失败：{e}")
+            return False
+        for _ in range(50):
+            if _shared_cdp_alive():
+                return True
+            await asyncio.sleep(0.5)
+        print("[!] 共享浏览器调试端口没起来：若火花的浏览器窗口正开着（旧版本无端口），"
+              "关掉它或在抖音页重新「初始化」一次即可复用")
+        return False
+
+    async def _shared_login_ok(self, ctx, page, active) -> bool:
+        """共享浏览器的登录态可用且就是当前账号；没登录先用账号备份恢复。"""
+        from dy_common import accounts as acc
+
+        try:
+            await page.goto("https://www.douyin.com/", wait_until="domcontentloaded",
+                            timeout=30000)
+        except Exception as e:
+            print(f"[*] 共享浏览器打开抖音失败：{e}")
+            return False
+        cookies = await ctx.cookies("https://www.douyin.com")
+        if not any(c["name"] == "sessionid" and c["value"] for c in cookies):
+            backup = acc.load_restorable_cookies(active["id"])
+            if not backup:
+                print("[*] 共享浏览器未登录且没有可恢复的 Cookie，改用独立浏览器")
+                return False
+            print("[*] 共享浏览器未登录，正在注入当前账号的登录态...")
+            try:
+                await ctx.add_cookies(backup)
+                await page.reload(wait_until="domcontentloaded")
+            except Exception:
+                return False
+        info = await acc.fetch_self_info(page)
+        uid = str(info.get("uid") or "")
+        want = str(active.get("uid") or active.get("id") or "")
+        if uid and want and uid != want:
+            print(f"[*] 共享浏览器登录的是别的账号（{uid}），改用独立浏览器")
+            return False
+        return True
+
+    async def _launch_own_browser(self):
+        """旧的独立浏览器路径：导出账号自己的 profile，关闭时整个浏览器退出。"""
+        user_data_dir = get_user_data_dir()
         self.context = await self.pw.chromium.launch_persistent_context(
             user_data_dir,
             headless=os.environ.get("HEADLESS", "false").lower() == "true",
@@ -323,16 +511,6 @@ class WebChatScraper:
             Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
         """)
         self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
-        # 全程被动收集 SDK 的会话请求：清缓存重载之前，很多会话本来就会发
-        # get_by_conversation，能直接从中拿到 short_id 就不用再折腾页面。
-        try:
-            self.page.on("request", self._on_sdk_request)
-        except Exception:
-            pass
-        self._short_ids = self._load_short_id_cache()
-        if self._short_ids:
-            print(f"[+] 已加载 {len(self._short_ids)} 个会话的 short_id 缓存")
-        print("[+] 浏览器已启动")
 
     def _short_id_cache_path(self):
         return os.path.join(paths.chat_data_dir(), "short_ids.json")
@@ -452,6 +630,11 @@ class WebChatScraper:
         return False
 
     async def wait_for_login(self):
+        if self._shared:
+            # 接入共享浏览器时已核对过登录账号（见 _shared_login_ok）
+            print("[+] 已检测到登录状态（共享浏览器）")
+            await self._save_cookies_backup()
+            return True
         await self.page.goto("https://www.douyin.com/", wait_until="domcontentloaded")
         print("[*] 正在检测登录状态...")
 
@@ -481,6 +664,12 @@ class WebChatScraper:
 
     async def navigate_to_chat(self):
         print("[*] 正在导航至私信页面...")
+
+        # 共享浏览器/恢复重载后可能已经在聊天页，直接用，省一次整页刷新
+        if "/chat" in (self.page.url or ""):
+            if await self._wait_for_selector_or_stop(SEL_CONV_ITEM, timeout_ms=8000):
+                print(f"[+] 已在私信页面: {self.page.url}")
+                return
 
         for attempt in range(3):
             if _stop_requested():
@@ -1405,23 +1594,42 @@ class WebChatScraper:
         if not force and "has been closed" not in err:
             return False
         print("  [!] 浏览器/页面已断开，正在重启...")
-        try:
-            if self.context:
-                try:
-                    await self._save_cookies_backup()
-                except Exception:
-                    pass
-                await self.context.close()
-        except Exception:
-            pass
-        try:
-            if self.pw:
-                await self.pw.stop()
-        except Exception:
-            pass
-        self.context = None
-        self.page = None
-        self.pw = None
+        if self._shared:
+            # 共享浏览器不归我们管：只收掉自己的标签页，让 launch() 重新
+            # 接入；浏览器真挂了的话 _launch_shared_browser 会再拉起来
+            try:
+                if self.page:
+                    await self.page.close()
+            except Exception:
+                pass
+            try:
+                if self.pw:
+                    await self.pw.stop()
+            except Exception:
+                pass
+            self.page = None
+            self.context = None
+            self.pw = None
+            self._shared = False
+            self._shared_browser = None
+        else:
+            try:
+                if self.context:
+                    try:
+                        await self._save_cookies_backup()
+                    except Exception:
+                        pass
+                    await self.context.close()
+            except Exception:
+                pass
+            try:
+                if self.pw:
+                    await self.pw.stop()
+            except Exception:
+                pass
+            self.context = None
+            self.page = None
+            self.pw = None
         if self._db_conn:
             try:
                 self._db_conn.close()
@@ -2877,6 +3085,21 @@ class WebChatScraper:
             except Exception:
                 pass
             self._db_conn = None
+        if self._shared:
+            # 共享浏览器归火花管：只收掉自己的标签页并断开连接，窗口保持打开
+            try:
+                await self._save_cookies_backup()
+            except Exception:
+                pass
+            try:
+                if self.page:
+                    await self.page.close()
+            except Exception:
+                pass
+            if self.pw:
+                await self.pw.stop()
+            print("[+] 已断开共享浏览器（窗口保持打开）")
+            return
         if self.context:
             # Flush the latest rotated cookies before Chromium exits.
             await self._save_cookies_backup()

@@ -28,6 +28,13 @@ DISCOVER_LOG = os.path.join(DATA_DIR, "discover.log")
 # Legacy single-account browser profile; migrated into ACCOUNTS_DIR on first use.
 BROWSER_PROFILE = os.path.join(DATA_DIR, "browser_profile")
 
+# 共享浏览器的 CDP 调试端口。火花「初始化」的浏览器和聊天导出自动拉起的
+# 浏览器都带这个端口，导出（Playwright）与火花（Selenium debuggerAddress）
+# 通过它接入同一个浏览器窗口，不再各开各的。使用方：
+# modules/douyin_chat/dy_extractor/web_scraper.py、dy_backend/control_panel.py、
+# modules/spark/spark_backend/browser_manager.py。
+SHARED_BROWSER_CDP_PORT = 9341
+
 # Multi-account root: ACCOUNTS_DIR/<id>/{browser_profile, cookies_backup.json,
 # chat/, exports/}. The registry (active pointer + per-account meta) lives in
 # ACCOUNTS_DIR/index.json.

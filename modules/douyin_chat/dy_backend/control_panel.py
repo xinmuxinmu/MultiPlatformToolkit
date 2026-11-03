@@ -6,6 +6,7 @@ import sqlite3
 import sys
 import tempfile
 import time
+import urllib.request
 from threading import Lock
 
 from fastapi import APIRouter, Request
@@ -812,6 +813,43 @@ async def _restore_cookies_to_context(ctx, page) -> bool:
     return False
 
 
+async def _probe_shared_browser_login() -> dict | None:
+    """共享浏览器（火花初始化 / 自动拉起的那个）在线时直接读它的登录态。
+
+    返回 None 表示不在线（没有共享浏览器），走老的 profile 探测路径。
+    在线时探测不再另起 Chromium——刮取子进程会接入同一个浏览器。
+    """
+    try:
+        with urllib.request.urlopen(
+                f"http://127.0.0.1:{paths.SHARED_BROWSER_CDP_PORT}/json/version",
+                timeout=1) as r:
+            r.read()
+    except Exception:
+        return None
+    try:
+        from playwright.async_api import async_playwright
+        pw = await async_playwright().start()
+        try:
+            browser = await pw.chromium.connect_over_cdp(
+                f"http://127.0.0.1:{paths.SHARED_BROWSER_CDP_PORT}", timeout=5000)
+            ctx = browser.contexts[0] if browser.contexts else None
+            if not ctx:
+                return None
+            cookies = await ctx.cookies("https://www.douyin.com")
+            has_login = any(c["name"] == "sessionid" and c["value"] for c in cookies)
+            if has_login:
+                # 登录态轮换后同步刷新账号备份，profile 探测的恢复路径不落后
+                active = _accts.get_active()
+                if active:
+                    _accts.save_cookies_backup(active["id"], cookies)
+            return {"status": "logged_in" if has_login else "expired",
+                    "has_cookies": has_login}
+        finally:
+            await pw.stop()
+    except Exception:
+        return None
+
+
 async def _probe_login_state(profile_dir: str | None = None) -> dict:
     """Single source of truth for whether a persistent profile is logged in.
 
@@ -832,6 +870,11 @@ async def _probe_login_state(profile_dir: str | None = None) -> dict:
     instances on the same profile (which would lock-conflict).
     """
     async with _login_probe_lock:
+        if profile_dir is None:
+            shared = await _probe_shared_browser_login()
+            if shared is not None:
+                _last_probe_state.update(shared)
+                return shared
         if profile_dir is None and _profile_busy():
             # Never launch a second Chromium against a profile a scrape/login
             # is using. The cached result is the last real probe.

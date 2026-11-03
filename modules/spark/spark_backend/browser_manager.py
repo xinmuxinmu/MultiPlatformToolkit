@@ -1,8 +1,10 @@
 """浏览器驱动管理模块"""
+import json
 import os
 import re
 import sys
 import subprocess
+import urllib.request
 from selenium import webdriver
 from selenium.common.exceptions import SessionNotCreatedException, WebDriverException
 from selenium.webdriver.common.by import By
@@ -12,6 +14,28 @@ from spark_backend import runtime
 
 
 DRIVER_EXE = {'edge': 'msedgedriver.exe', 'chrome': 'chromedriver.exe'}
+
+# 共享浏览器的 CDP 调试端口：与聊天导出（dy_common.paths.SHARED_BROWSER_CDP_PORT）
+# 保持一致。聊天导出优先接入这里初始化的浏览器；反过来导出先把浏览器拉起来
+# 时，下面的初始化也会接入同一个浏览器而不是再开一个窗口。
+try:
+    _MODULES_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    _DOUYIN_CHAT_DIR = os.path.join(_MODULES_ROOT, 'douyin_chat')
+    if os.path.isdir(_DOUYIN_CHAT_DIR) and _DOUYIN_CHAT_DIR not in sys.path:
+        sys.path.insert(0, _DOUYIN_CHAT_DIR)
+    from dy_common.paths import SHARED_BROWSER_CDP_PORT as CDP_PORT
+except ImportError:
+    CDP_PORT = 9341
+
+
+def shared_browser_alive() -> bool:
+    """共享浏览器是否已在调试端口上（可能是火花起的，也可能是导出拉起的）。"""
+    try:
+        with urllib.request.urlopen(
+                f'http://127.0.0.1:{CDP_PORT}/json/version', timeout=1) as r:
+            return bool(json.loads(r.read().decode('utf-8')))
+    except Exception:
+        return False
 
 # 各浏览器默认安装目录（用于读取主版本号，判断 PATH 里的驱动是否过旧）
 BROWSER_DIRS = {
@@ -161,6 +185,8 @@ def build_browser_options(account_id=None, force_visible=False):
     options.add_argument('--ignore-certificate-errors')
     options.add_argument('--no-sandbox')
     options.add_argument(f'--user-data-dir={profile_dir}')
+    # 给聊天导出留一个 CDP 接入口，两边共用同一个浏览器窗口
+    options.add_argument(f'--remote-debugging-port={CDP_PORT}')
 
     if show_browser:
         options.add_argument('--start-maximized')
@@ -187,6 +213,19 @@ def create_webdriver(account_id=None, force_visible=False):
     # 启动前先修掉两个常见的环境坑，否则会表现为「初始化失败」
     ensure_localhost_bypass_proxy()
     drop_mismatched_drivers(browser_name)
+    if shared_browser_alive():
+        # 聊天导出先把共享浏览器拉起来了：接入同一个浏览器，不再另开窗口。
+        # 注意附加模式不能带 excludeSwitches —— msedgedriver 会报
+        # cannot parse capability: ms:edgeOptions；浏览器已在运行也用不上它。
+        if browser_name == 'edge':
+            options = webdriver.EdgeOptions()
+        else:
+            options = webdriver.ChromeOptions()
+        options.debugger_address = f'127.0.0.1:{CDP_PORT}'
+        options.add_argument('log-level=3')
+        if browser_name == 'edge':
+            return webdriver.Edge(options=options)
+        return webdriver.Chrome(options=options)
     options = build_browser_options(account_id, force_visible)
     if browser_name == 'edge':
         return webdriver.Edge(options=options)
