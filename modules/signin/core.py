@@ -390,6 +390,78 @@ class WeiboSenior:
             return None
         return (res.get("result", {}).get("result", {}) or {}).get("value")
 
+    def _wait_weibo_session_list(self, ws, timeout=40.0):
+        """等 api.weibo.com/chat 左侧会话列表渲染出来。
+
+        这个 SPA 冷缓存首开经常二十秒起步，固定 sleep 等不准；等过半还没
+        出来就整页重载一次再等——等价于用户手动「关掉浏览器重开」的效果。
+        """
+        deadline = time.time() + timeout
+        reloaded = False
+        while time.time() < deadline:
+            cnt = self._js(ws, "document.querySelectorAll('.sessionlist').length", 316) or 0
+            if cnt:
+                return cnt
+            if not reloaded and time.time() > deadline - timeout / 2:
+                reloaded = True
+                self.log("info", "会话列表还没渲染出来，重载一次页面…")
+                self._js(ws, "location.reload()", 315, want_value=False)
+            time.sleep(1)
+        return 0
+
+    def _weibo_open_session_and_send(self, ws, finder_js, text, what):
+        """在微博私信页点开目标会话、输入文字并回车发送，返回是否发出。
+
+        窗口打不开就整页重载再试（SPA 首开偶发渲染不全，相当于手动关掉
+        重开）；发送后输入框还有内容说明回车没生效，清空重试一次。
+        """
+        opened = False
+        for attempt in range(3):
+            if attempt:
+                self.log("info", f"{what}窗口没打开，重载聊天页再试…")
+                self._js(ws, "location.reload()", 315, want_value=False)
+                time.sleep(8)
+                if not self._wait_weibo_session_list(ws, 20):
+                    continue
+            pos = click_element(ws, finder_js)
+            if pos:
+                self.log("info", f"点开「{(pos.get('txt') or what)[:14]}」，等右侧加载…")
+            for _ in range(8):
+                time.sleep(1)
+                if self._js(ws, "!!document.getElementById('webchat-textarea')", 320):
+                    opened = True
+                    break
+            if opened:
+                break
+
+        if not opened:
+            raise SignError(f"{what}窗口没打开（可能点偏了或页面加载慢），过一会儿再试")
+
+        for send_try in range(2):
+            self._js(ws, "const t=document.getElementById('webchat-textarea');"
+                         "t.focus(); t.click();", 330, want_value=False)
+            time.sleep(0.6)
+            ws.call("Input.insertText", {"text": text}, msg_id=331)
+            time.sleep(1)
+            for kind in ("keyDown", "keyUp"):
+                ws.call("Input.dispatchKeyEvent", {
+                    "type": kind, "key": "Enter", "code": "Enter", "text": "\r",
+                    "windowsVirtualKeyCode": 13, "nativeVirtualKeyCode": 13}, msg_id=333)
+            time.sleep(4)
+            left = self._js(ws, "document.getElementById('webchat-textarea').value", 334)
+            # 输入框清空即视为发出（有些实现不会把输入同步进 value）
+            if not (left or "").strip():
+                return True
+            if send_try == 0:
+                self.log("warn", f"{what}消息好像没发出去（输入框还有内容），清空重试…")
+                self._js(ws, "const t=document.getElementById('webchat-textarea');"
+                             "t.value='';"
+                             "t.dispatchEvent(new Event('input', {bubbles: true}));",
+                         335, want_value=False)
+                time.sleep(0.5)
+        self.log("warn", f"{what}消息没发出去（输入框一直有内容），过一会儿再试")
+        return False
+
     def _do_group_message(self, cookie, result):
         """在微博私信的粉丝群里发一条消息（消息互动任务）。"""
         group = str(self.cfg.get("group_name") or "").strip() or "囧菌今天发歌了吗"
@@ -400,52 +472,21 @@ class WeiboSenior:
 
         with browser_session(GROUP_PROFILE, "https://api.weibo.com/chat#/chat",
                              cookies=parse_cookie(cookie), mobile=False,
-                             port=9336, wait=18) as ws:
-            opened = False
-            for attempt in range(3):
-                pos = click_element(
-                    ws, f"() => [...document.querySelectorAll('.sessionlist')]"
-                        f".find(e => (e.innerText || '').includes('{group}'))")
-                if pos:
-                    self.log("info", f"点开「{pos.get('txt', group)[:12]}」，等右侧加载…")
-                for _ in range(8):
-                    time.sleep(1)
-                    if self._js(ws, "!!document.getElementById('webchat-textarea')", 320):
-                        opened = True
-                        break
-                if opened:
-                    break
-                time.sleep(2)
+                             port=9336, wait=6) as ws:
+            if not self._wait_weibo_session_list(ws):
+                raise SignError("聊天页没加载出会话列表（Cookie 可能过期或页面开小差），稍后再试")
+            ok = self._weibo_open_session_and_send(
+                ws,
+                f"() => [...document.querySelectorAll('.sessionlist')]"
+                f".find(e => (e.innerText || '').includes('{group}'))",
+                text, what="群")
 
-            if not opened:
-                raise SignError("群窗口没打开（可能点偏了或页面加载慢），过一会儿再试")
-
-            self._js(ws, "const t=document.getElementById('webchat-textarea');"
-                         "t.focus(); t.click();", 330, want_value=False)
-            time.sleep(0.6)
-            ws.call("Input.insertText", {"text": text}, msg_id=331)
-            time.sleep(1)
-
-            before = self._js(ws, "document.getElementById('webchat-textarea').value", 332)
-            for kind in ("keyDown", "keyUp"):
-                ws.call("Input.dispatchKeyEvent", {
-                    "type": kind, "key": "Enter", "code": "Enter", "text": "\r",
-                    "windowsVirtualKeyCode": 13, "nativeVirtualKeyCode": 13}, msg_id=333)
-            time.sleep(4)
-
-            after = self._js(ws, "document.getElementById('webchat-textarea').value", 334)
-            if (before is not None and text in before) and not (after or "").strip():
-                self.log("success", f"已在「{group}」发出「{text}」")
-                result["ok"] += 1
-                return True
-            # 输入框清空也算发成功（有些实现不会回填 value）
-            if not (after or "").strip():
-                self.log("success", f"已在「{group}」发出「{text}」")
-                result["ok"] += 1
-                return True
-            self.log("warn", "消息好像没发出去（输入框还有内容），可以再试一次")
+        if ok:
+            self.log("success", f"已在「{group}」发出「{text}」")
+            result["ok"] += 1
+        else:
             result["fail"] += 1
-            return False
+        return ok
 
     def _do_dm_message(self, cookie, result):
         """每天给博主的私聊发一次问候，按早/午/晚自动选文案。"""
@@ -471,48 +512,22 @@ class WeiboSenior:
 
         with browser_session(DM_PROFILE, "https://api.weibo.com/chat#/chat",
                              cookies=parse_cookie(cookie), mobile=False,
-                             port=9337, wait=18) as ws:
-            opened = False
-            for _ in range(3):
-                pos = click_element(
-                    ws, f"() => [...document.querySelectorAll('.sessionlist')]"
-                        f".find(e => (e.innerText || '').trim().split('\\n')[0].trim() === '{target}')")
-                if pos:
-                    self.log("info", f"点开私聊「{pos.get('txt', target)[:14]}」，等右侧加载…")
-                for _ in range(8):
-                    time.sleep(1)
-                    if self._js(ws, "!!document.getElementById('webchat-textarea')", 320):
-                        opened = True
-                        break
-                if opened:
-                    break
-                time.sleep(2)
+                             port=9337, wait=6) as ws:
+            if not self._wait_weibo_session_list(ws):
+                raise SignError("聊天页没加载出会话列表（Cookie 可能过期或页面开小差），稍后再试")
+            ok = self._weibo_open_session_and_send(
+                ws,
+                f"() => [...document.querySelectorAll('.sessionlist')]"
+                f".find(e => (e.innerText || '').trim().split('\\n')[0].trim() === '{target}')",
+                text, what="私聊")
 
-            if not opened:
-                raise SignError("私聊窗口没打开（可能点偏了或页面加载慢），过一会儿再试")
-
-            self._js(ws, "const t=document.getElementById('webchat-textarea');"
-                         "t.focus(); t.click();", 330, want_value=False)
-            time.sleep(0.6)
-            ws.call("Input.insertText", {"text": text}, msg_id=331)
-            time.sleep(1)
-
-            for kind in ("keyDown", "keyUp"):
-                ws.call("Input.dispatchKeyEvent", {
-                    "type": kind, "key": "Enter", "code": "Enter", "text": "\r",
-                    "windowsVirtualKeyCode": 13, "nativeVirtualKeyCode": 13}, msg_id=333)
-            time.sleep(4)
-
-            left = self._js(ws, "document.getElementById('webchat-textarea').value", 334)
-            if (left or "").strip():
-                self.log("warn", "消息好像没发出去（输入框还有内容），再试一次")
-                result["fail"] += 1
-                return False
-
-        self.log("success", f"已给 @{target} 发{period}问候：{text}")
-        result["ok"] += 1
-        save_dm_sent({"date": today, "period": period, "text": text})
-        return True
+        if ok:
+            self.log("success", f"已给 @{target} 发{period}问候：{text}")
+            result["ok"] += 1
+            save_dm_sent({"date": today, "period": period, "text": text})
+            return True
+        result["fail"] += 1
+        return False
 
     def _do_fans_task(self, cookie, result):
         """手机版铁粉页打卡。页面是服务端直出的，只能靠浏览器渲染后点「今日」格子。"""
