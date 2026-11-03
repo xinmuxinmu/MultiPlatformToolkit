@@ -83,6 +83,18 @@ SEL_MSG_SHARE = 'div[class*="MessageItemShareAwemecontainer"]'
 SEL_MSG_EMOJI = 'img[class*="MessageItemEmojiimage"]'
 SEL_MSG_AVATAR = 'img[class*="avatar"]'
 
+# 从会话行向上找真正可滚动的祖先。旧写法靠 [style*="overflow"] 猜容器，
+# 抖音把 overflow 样式挪进 class 之后猜不中：scrollTop 永远不动，被当成
+# 「已到底」，列表只读得到首屏十几个会话。按几何特征（内容高出自身）判断。
+JS_CONV_SCROLLER_FIND = (
+    "(() => { let el = document.querySelector('" + SEL_CONV_ITEM + "')"
+    " || document.querySelector('" + SEL_CONV_LIST + "');"
+    " while (el && el !== document.body) {"
+    " if (el.scrollHeight > el.clientHeight + 4) return el;"
+    " el = el.parentElement;"
+    " } return null; })()"
+)
+
 # 解析 IM SDK get_by_conversation 请求体（protobuf: f8 → f301 → {f1 conv_id, f3 short_id}）。
 # 脆弱逆向逻辑，逐字保留自旧实现，勿改。
 JS_PARSE_CONV_REQUEST = """(bytes) => {
@@ -836,26 +848,28 @@ class WebChatScraper:
         removed from the DOM, so a single querySelectorAll snapshot misses
         everything above/below the visible window. We scroll from the top
         to the bottom, reading items each round and deduping by nickname.
+
+        到底部之后抖音还会懒加载更多会话（滚动条停在原地等接口返回），
+        所以「读完」的判定要求：已在底部 + 高度和条数连续多轮都没变化。
         """
         # 先滚到顶部，保证从头开始收集
         await self.page.evaluate(f"""() => {{
-            const list = document.querySelector('{SEL_CONV_LIST}');
-            if (list) {{
-                const scrollable = list.querySelector('[style*="overflow"]') || list;
-                scrollable.scrollTop = 0;
-            }}
+            const sc = {JS_CONV_SCROLLER_FIND};
+            if (sc) sc.scrollTop = 0;
         }}""")
         await asyncio.sleep(0.6)
 
         seen = {}  # key -> conv info (保持插入顺序 = 列表自上而下)
         stable_rounds = 0
+        last_height = -1
+        warned_no_scroller = False
 
-        for _ in range(120):
+        for _ in range(150):
             if _stop_requested():
                 raise ScrapeCancelled()
-            convs = await self.page.evaluate(f"""() => {{
+            info = await self.page.evaluate(f"""() => {{
                 const items = document.querySelectorAll('{SEL_CONV_ITEM}');
-                return Array.from(items).map(el => {{
+                const convs = Array.from(items).map(el => {{
                     const titleEl = el.querySelector('{SEL_CONV_TITLE}');
                     const timeEl = el.querySelector('{SEL_CONV_TIME}');
                     const previewEl = el.querySelector('{SEL_CONV_PREVIEW}');
@@ -873,43 +887,50 @@ class WebChatScraper:
                         preview: previewEl ? previewEl.textContent.trim() : '',
                     }};
                 }});
+                const sc = {JS_CONV_SCROLLER_FIND};
+                const hasScroller = !!sc;
+                let atBottom = true, height = 0;
+                if (sc) {{
+                    height = sc.scrollHeight;
+                    const before = sc.scrollTop;
+                    sc.scrollTop = before + 400;
+                    atBottom = sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 2;
+                }}
+                return {{convs, hasScroller, atBottom, height}};
             }}""")
+            if not info:
+                break
+            if not info.get("hasScroller") and not warned_no_scroller:
+                warned_no_scroller = True
+                print("  [!] 没找到会话列表的滚动容器，只能读到当前可见的会话（一屏能放下时属正常）")
 
             added = 0
-            for c in convs:
+            for c in info.get("convs") or []:
                 key = c.get("nickname") or c.get("name")
                 if key and key not in seen:
                     seen[key] = c
                     added += 1
 
-            reached_bottom = await self.page.evaluate(f"""() => {{
-                const list = document.querySelector('{SEL_CONV_LIST}');
-                if (!list) return true;
-                const scrollable = list.querySelector('[style*="overflow"]') || list;
-                const before = scrollable.scrollTop;
-                scrollable.scrollTop += 400;
-                return scrollable.scrollTop === before;
-            }}""")
+            height = info.get("height") or 0
+            height_stable = height == last_height
+            last_height = height
 
-            if added == 0:
-                stable_rounds += 1
-            else:
+            if added:
                 stable_rounds = 0
                 print(f"  已加载 {len(seen)} 个会话...")
+            else:
+                stable_rounds += 1
 
-            # 到底且连续 2 轮无新增 → 视为读完
-            if reached_bottom and stable_rounds >= 2:
+            # 到底且高度/条数连续 5 轮无变化 → 懒加载也 settled 了，视为读完
+            if info.get("atBottom") and height_stable and stable_rounds >= 5:
                 break
 
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.7)
 
         # 回到顶部，后续点击流程从熟悉的起点开始
         await self.page.evaluate(f"""() => {{
-            const list = document.querySelector('{SEL_CONV_LIST}');
-            if (list) {{
-                const scrollable = list.querySelector('[style*="overflow"]') || list;
-                scrollable.scrollTop = 0;
-            }}
+            const sc = {JS_CONV_SCROLLER_FIND};
+            if (sc) sc.scrollTop = 0;
         }}""")
         await asyncio.sleep(0.5)
 
@@ -1026,14 +1047,12 @@ class WebChatScraper:
 
         # Not found in current view; scroll from top, incrementally.
         await self.page.evaluate(f"""() => {{
-            const list = document.querySelector('{SEL_CONV_LIST}');
-            if (list) {{
-                const scrollable = list.querySelector('[style*="overflow"]') || list;
-                scrollable.scrollTop = 0;
-            }}
+            const sc = {JS_CONV_SCROLLER_FIND};
+            if (sc) sc.scrollTop = 0;
         }}""")
         await asyncio.sleep(0.5)
 
+        stable_rounds = 0
         for _ in range(20):
             m = await _try_match()
             if m["index"] >= 0:
@@ -1045,17 +1064,21 @@ class WebChatScraper:
                 if n and n not in all_debug_names:
                     all_debug_names.append(n)
 
-            reached_bottom = await self.page.evaluate(f"""() => {{
-                const list = document.querySelector('{SEL_CONV_LIST}');
-                if (!list) return true;
-                const scrollable = list.querySelector('[style*="overflow"]') || list;
-                const before = scrollable.scrollTop;
-                scrollable.scrollTop += 400;
-                return scrollable.scrollTop === before;
+            at_bottom = await self.page.evaluate(f"""() => {{
+                const sc = {JS_CONV_SCROLLER_FIND};
+                if (!sc) return true;
+                const before = sc.scrollTop;
+                sc.scrollTop = before + 400;
+                return sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 2;
             }}""")
             await asyncio.sleep(0.4)
-            if reached_bottom:
-                break
+            # 到底也可能是懒加载还没回来：连续 3 轮都在底部才放弃
+            if at_bottom:
+                stable_rounds += 1
+                if stable_rounds >= 3:
+                    break
+            else:
+                stable_rounds = 0
 
         return {"found": False, "count": len(all_debug_names), "names": all_debug_names[:20]}
 
