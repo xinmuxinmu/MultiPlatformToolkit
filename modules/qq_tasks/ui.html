@@ -19,6 +19,24 @@ html[data-theme="purple"]{--task-accent:#c084fc;--task-accent-fg:#1b1229}
 .status-dot.ok{background:#22c55e}
 .result-line{font-size:13px;line-height:1.9;color:var(--mp-text)}
 .result-line .k{color:var(--mp-muted);margin-right:8px}
+.medal-block{border-bottom:1px solid var(--mp-border);padding:12px 0}
+.medal-block:last-child{border-bottom:0;padding-bottom:0}
+.medal-block > .mission{border-bottom:0;padding:0}
+.task-more{margin-top:8px}
+.task-more>summary{cursor:pointer;font-size:12.5px;color:var(--mp-muted);margin-left:2px}
+.task-more .mission{padding:8px 0 8px 12px;border-bottom:1px dashed var(--mp-border)}
+.task-more .mission:last-child{border-bottom:0;padding-bottom:0}
+.task-more .m-title{font-size:12.5px}
+.task-more .m-desc{font-size:11.5px}
+.task-pick{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--mp-border);font-size:13px;cursor:pointer}
+.task-pick:last-child{border-bottom:0}
+.task-pick input{width:16px;height:16px;flex:none}
+.task-pick .tp-name{flex:1;min-width:0}
+.task-pick .tp-meta{color:var(--mp-muted);font-size:12px;white-space:nowrap}
+.task-pick.disabled{opacity:.55;cursor:default}
+/* 设置页很长：保存/执行按钮固定在顶部，勾选后不用再滚回页头 */
+header{position:sticky;top:0;z-index:30;background:var(--mp-bg);padding:10px 0;margin:-10px 0 18px;
+  box-shadow:0 8px 18px -16px rgba(0,0,0,.6)}
 </style>
 </head>
 <body>
@@ -26,7 +44,7 @@ html[data-theme="purple"]{--task-accent:#c084fc;--task-accent-fg:#1b1229}
   <header>
     <div>
       <h1><span class="dot"></span>QQ 音乐</h1>
-      <div class="sub">QQ 音乐每日签到　Cookie 只存在本机</div>
+      <div class="sub">QQ 音乐每日签到 · 乐迷勋章　Cookie 只存在本机</div>
     </div>
     <div class="actions">
       <button class="btn-ghost" id="btnRefresh">刷新状态</button>
@@ -49,12 +67,28 @@ html[data-theme="purple"]{--task-accent:#c084fc;--task-accent-fg:#1b1229}
       <div class="hero-line">
         <div>
           <div class="hero-main"><span class="status-dot" id="musicDot"></span>每日签到</div>
-          <div class="hero-sub" id="musicSub">活动中心签到，积分自动累计</div>
+          <div class="hero-sub" id="musicSub">积分中心签到，积分自动累计</div>
         </div>
       </div>
       <div class="result-line" style="margin-top:14px">
         <span class="k">最近结果</span><span id="musicResult">还没有执行过</span>
       </div>
+    </div>
+
+    <div class="card">
+      <div class="panel-head">
+        <span class="t">今日任务</span>
+        <span class="s" id="missionSummary">—</span>
+      </div>
+      <div id="missionList"><div class="empty">暂无数据</div></div>
+    </div>
+
+    <div class="card" id="medalCard">
+      <div class="panel-head">
+        <span class="t">乐迷勋章</span>
+        <span class="s" id="medalStat">—</span>
+      </div>
+      <div id="medalBody"><div class="empty">点「刷新状态」拉取勋章列表</div></div>
     </div>
 
     <div class="card">
@@ -78,10 +112,55 @@ html[data-theme="purple"]{--task-accent:#c084fc;--task-accent-fg:#1b1229}
         <label>每日签到</label>
         <label class="switch"><input type="checkbox" id="music_enable"><span></span></label>
       </div>
-      <div class="note">
-        需要 <b>uin</b> 和 <b>qqmusic_key</b>。签到走活动中心
-        <code>ActCenterSignNewSvr.DoSignIn</code>。
+      <div class="field">
+        <label>乐迷勋章</label>
+        <label class="switch"><input type="checkbox" id="medal_enable"><span></span></label>
       </div>
+      <div class="field">
+        <label>勋章页任务</label>
+        <label class="switch"><input type="checkbox" id="medal_tasks_enable"><span></span></label>
+      </div>
+      <div class="field">
+        <label>抽卡页任务（签到 + 翻卡挑战）</label>
+        <label class="switch"><input type="checkbox" id="card_pool_enable"><span></span></label>
+      </div>
+      <div class="note">
+        需要 <b>uin</b> 和 <b>qqmusic_key</b>。签到走积分中心
+        <code>ActCenterSignNewSvr.SignIn</code>；乐迷勋章默认全部签到，
+        可在下方「要执行的勋章 / 歌手」里自选，只处理勾选项。
+        默认只做可自动上报的任务；其他任务可在下方勾选，接口可能拒绝。
+        抽卡页任务对勾选勋章对应的歌词卡卡池做每日签到，并把「翻卡挑战」
+        每天免费 3 次玩完（真实开局、上报、结算）；勋章任务里的
+        「抽 1 次歌词卡」也会自动抽 1 次（用账号已有的免费抽卡次数，不花钱）。
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="panel-head">
+        <span class="t">要执行的勋章 / 歌手</span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span id="pickSaveState" style="font-size:12px;color:#94a3b8"></span>
+          <button class="btn-ghost btn-sm" id="btnMedalAll">全选</button>
+          <button class="btn-ghost btn-sm" id="btnMedalNone">全不选</button>
+        </div>
+      </div>
+      <div class="note">只对勾选的勋章/歌手签到并执行任务；不勾选则全部跳过，默认全选。</div>
+      <div id="medalPick"><div class="empty">先点「刷新状态」拉取勋章列表</div></div>
+    </div>
+
+    <div class="card">
+      <div class="panel-head">
+        <span class="t">勋章任务（自动识别）</span>
+        <div style="display:flex;gap:6px">
+          <button class="btn-ghost btn-sm" id="btnTaskTryAll">尝试全部（不含购买）</button>
+          <button class="btn-ghost btn-sm" id="btnTaskAll">全选可自动</button>
+          <button class="btn-ghost btn-sm" id="btnTaskNone">清空</button>
+          <button class="btn-ghost btn-sm" id="btnLoadTasks">刷新任务列表</button>
+        </div>
+      </div>
+      <div class="note">勾选要执行的任务类型；未勾选的不执行。「尝试全部」会勾选除购买/付费/超会外的所有任务，
+        看视频、游戏、外部 App 类仍可能被平台拒绝；购买/付费类只会上报，不会自动下单。</div>
+      <div id="taskPick"><div class="empty">先点「刷新任务列表」拉取账号下的任务</div></div>
     </div>
   </div>
 </div>
@@ -111,9 +190,18 @@ if (EMBED) document.body.classList.add('embed');
 const $ = id => document.getElementById(id);
 const TITLES = {music: 'QQ 音乐 · 快捷登录'};
 const BTNS = {music: 'btnLoginMusic'};
+const AUTO_TASK_TYPES = ['watch_ads', 'share_song', 'share_medal', 'page_browsed',
+                         'calendar_reminder', 'medal_praised_singer',
+                         'medal_card_draw_card'];
 
 let state = {};
 let since = 0, polling = null, running = false;
+let taskPickLoaded = false;
+let taskPickDirty = false;
+let medalPickLoaded = false;
+let medalPickDirty = false;
+let selectionSaveTimer = null;
+let saveChain = Promise.resolve();
 let loginWhich = 'music', loginStage = 'idle', loginBusy = '', loginTimer = null;
 
 function esc(v){
@@ -126,6 +214,19 @@ function toast(msg, kind){
   el.className = 'toast show ' + (kind || '');
   clearTimeout(toast._t);
   toast._t = setTimeout(() => el.className = 'toast', 2600);
+}
+function setPickSaveState(text, color){
+  const el = $('pickSaveState');
+  if (!el) return;
+  el.textContent = text || '';
+  el.style.color = color || '#94a3b8';
+}
+function schedulePickSave(){
+  setPickSaveState('有改动，正在保存…', '#f59e0b');
+  clearTimeout(selectionSaveTimer);
+  selectionSaveTimer = setTimeout(() => {
+    saveChain = saveChain.then(() => saveAll(true, false));
+  }, 400);
 }
 function setTab(name){
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x.dataset.tab === name));
@@ -143,13 +244,221 @@ function paintState(){
   $('musicState').textContent = mok ? '已登录' : '未登录';
   $('musicDot').classList.toggle('ok', mok);
   const m = cached.music || {};
-  $('musicResult').textContent = m.msg || '还没有执行过';
+  const sg = cached.sign || {};
+  const useSign = typeof sg.signed === 'boolean' && (!m.at || !sg.at || sg.at >= m.at);
+  $('musicResult').textContent = useSign
+    ? (sg.signed ? `今天已签到（连续 ${sg.continue_days || 0} 天）` : '今天还没签到')
+    : (m.msg || '还没有执行过');
+  renderMissions(cached);
+  renderMedal(cached);
+  renderMedalPick();
+  renderTaskPick();
+  if (!taskPickDirty && !medalPickDirty
+      && Array.isArray((state.music || {}).medal_task_types)){
+    setPickSaveState('勾选已保存', '#22c55e');
+  }
+}
+
+function renderMissions(cached){
+  const m = (cached && cached.music) || {};
+  const md = (cached && cached.medal) || {};
+  const sg = (cached && cached.sign) || {};
+  const total = md.total || 0, signed = md.signed || 0;
+  const medalOk = total > 0 && signed >= total;
+  const taskTotal = (md.medals || []).reduce((n, x) => n + (x.task_total || 0), 0);
+  const taskDone = (md.medals || []).reduce((n, x) => n + (x.task_done || 0), 0);
+  const medalDesc = total
+    ? `已签到 ${signed}/${total} 枚` + (taskTotal ? ` · 任务 ${taskDone}/${taskTotal}` : '')
+    : '点「刷新状态」拉取勋章列表';
+  const useSign = typeof sg.signed === 'boolean' && (!m.at || !sg.at || sg.at >= m.at);
+  const signOk = useSign ? !!sg.signed : !!m.ok;
+  const signDesc = useSign
+    ? (sg.signed ? `连续 ${sg.continue_days || 0} 天 · 累计 ${sg.total_days || 0} 天` : '今天还没签到')
+    : (m.msg || '还没有执行过');
+  const rows = [
+    {t: 'QQ 音乐签到', d: signDesc, ok: signOk,
+     badge: signOk ? '已签到' : (useSign ? '未签到' : (m.msg ? '未完成' : '待执行'))},
+    {t: '乐迷勋章签到',
+     d: medalDesc,
+     ok: medalOk,
+     badge: !total ? '未获取' : (medalOk ? '已完成' : `剩 ${total - signed} 枚`)},
+  ];
+  $('missionList').innerHTML = rows.map(r => `
+    <div class="mission">
+      <div class="m-body">
+        <div class="m-title">${esc(r.t)}</div>
+        <div class="m-desc">${esc(r.d)}</div>
+      </div>
+      <span class="badge ${r.ok ? 'ok' : 'wait'}">${esc(r.badge)}</span>
+    </div>`).join('');
+  const got = (signOk ? 1 : 0) + (medalOk ? 1 : 0);
+  $('missionSummary').textContent = `${got}/2 项完成`;
+}
+
+function renderMedal(cached){
+  const box = $('medalBody'), stat = $('medalStat');
+  const m = (cached && cached.medal) || {};
+  if (m.error){
+    stat.textContent = '不可用';
+    box.innerHTML = `<div class="empty">${esc(m.error)}</div>`;
+    return;
+  }
+  if (!m.medals || !m.medals.length){
+    stat.textContent = '未获取';
+    box.innerHTML = '<div class="empty">点「刷新状态」拉取勋章列表</div>';
+    return;
+  }
+  stat.textContent = `已签 ${m.signed || 0}/${m.total || 0}`;
+  const onlyIds = (state.music || {}).medal_selected_ids;
+  const onlySet = Array.isArray(onlyIds) ? new Set(onlyIds.map(String)) : null;
+  box.innerHTML = m.medals.map(x => {
+    const ok = !!x.signed;
+    const picked = !x.unselected && (!onlySet || onlySet.has(String(x.id)));
+    const bits = [`Lv${x.level || 0}`];
+    if (!picked) bits.push('未勾选');
+    if (x.continue_days) bits.push(`连续 ${x.continue_days} 天`);
+    if (x.sign_number) bits.push(`累计 ${x.sign_number} 次`);
+    if (x.task_total) bits.push(`任务 ${x.task_done || 0}/${x.task_total}`);
+    if (x.msg && !ok) bits.push(x.msg);
+    const tasks = x.tasks || [];
+    const rows = tasks.map(t => {
+      const badge = t.done ? '已完成' : (t.auto ? `剩 ${Math.max(0, t.need - t.finish)}` : '需手动');
+      return `
+      <div class="mission">
+        <div class="m-body">
+          <div class="m-title">${esc(t.name)}</div>
+          <div class="m-desc">${t.need ? `${t.finish}/${t.need}` : '进行中'}</div>
+        </div>
+        <span class="badge ${t.done ? 'ok' : 'wait'}">${esc(badge)}</span>
+      </div>`;
+    }).join('');
+    return `
+    <div class="medal-block">
+      <div class="mission">
+        <div class="m-body">
+          <div class="m-title">${esc(x.name || ('勋章 ' + x.id))}</div>
+          <div class="m-desc">${esc(bits.join(' · '))}</div>
+        </div>
+        <span class="badge ${ok ? 'ok' : 'wait'}">${ok ? '已签到' : (picked ? '未签到' : '未选')}</span>
+      </div>
+      ${tasks.length ? `<details class="task-more"><summary>查看全部任务（${x.task_done || 0}/${x.task_total || 0}）</summary>${rows}</details>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function renderMedalPick(){
+  const box = $('medalPick');
+  if (!box) return;
+  const medals = (((state.cached || {}).medal || {}).medals) || [];
+  if (!medals.length){
+    box.innerHTML = '<div class="empty">先点「刷新状态」拉取勋章列表</div>';
+    medalPickLoaded = false;
+    return;
+  }
+  const saved = (state.music || {}).medal_selected_ids;
+  const selected = Array.isArray(saved)
+    ? new Set(saved.map(String))
+    : new Set(medals.map(m => String(m.id)));
+  box.innerHTML = medals.map(m => {
+    const id = String(m.id);
+    const bits = [];
+    if (m.level) bits.push('Lv' + m.level);
+    if (m.signed) bits.push('今天已签');
+    if (m.task_total) bits.push(`任务 ${m.task_done || 0}/${m.task_total}`);
+    return `<label class="task-pick">
+      <input type="checkbox" value="${esc(id)}" ${selected.has(id) ? 'checked' : ''}>
+      <span class="tp-name">${esc(m.name || ('勋章 ' + id))}</span>
+      <span class="tp-meta">${esc(bits.join(' · '))}</span>
+    </label>`;
+  }).join('');
+  medalPickLoaded = true;
+  box.onchange = () => {
+    medalPickDirty = true;
+    renderTaskPick();
+    schedulePickSave();
+  };
+}
+
+function selectedMedalSet(){
+  if (!medalPickLoaded) return null;
+  const boxes = [...document.querySelectorAll('#medalPick input[type=checkbox]')];
+  if (!boxes.length) return null;
+  return new Set(boxes.filter(b => b.checked).map(b => b.value));
+}
+
+function renderTaskPick(){
+  const box = $('taskPick');
+  if (!box) return;
+  const allMedals = (((state.cached || {}).medal || {}).medals) || [];
+  const only = selectedMedalSet();
+  const medals = only ? allMedals.filter(m => only.has(String(m.id))) : allMedals;
+  if (only && !only.size){
+    box.innerHTML = '<div class="empty">没有勾选任何勋章/歌手，勋章任务不会执行</div>';
+    taskPickLoaded = false;
+    return;
+  }
+  const keep = (taskPickLoaded && taskPickDirty)
+    ? new Set([...box.querySelectorAll('input[type=checkbox]')]
+        .filter(b => b.checked && !b.disabled).map(b => b.value))
+    : null;
+  const seen = new Map();
+  for (const m of medals){
+    for (const t of (m.tasks || [])){
+      if (!t.type || t.type === 'sign_in') continue;
+      if (!seen.has(t.type)){
+        seen.set(t.type, {name: t.name, type: t.type, medals: 0, count: 0,
+                          auto: AUTO_TASK_TYPES.includes(t.type)});
+      }
+      const row = seen.get(t.type);
+      row.medals += 1;
+      row.count += 1;
+    }
+  }
+  const items = [...seen.values()];
+  const blocked = [];
+  const blockedSeen = new Set();
+  for (const m of medals){
+    for (const t of (m.tasks || [])){
+      if (t.type || t.type === 'sign_in' || blockedSeen.has(t.name)) continue;
+      blockedSeen.add(t.name);
+      blocked.push(t.name);
+    }
+  }
+  if (!items.length && !blocked.length){
+    box.innerHTML = '<div class="empty">先点「刷新任务列表」拉取账号下的任务</div>';
+    taskPickLoaded = false;
+    return;
+  }
+  const saved = (state.music || {}).medal_task_types;
+  const selected = Array.isArray(saved) ? new Set(saved) : new Set(AUTO_TASK_TYPES);
+  box.innerHTML = items.map(x => {
+    const title = x.count > 1 ? `${x.name} 等 ${x.count} 项` : x.name;
+    const meta = `${x.medals} 枚勋章 · ${x.auto ? '可自动' : '需手动'}`;
+    return `<label class="task-pick">
+      <input type="checkbox" value="${esc(x.type)}" ${(keep ? keep.has(x.type) : selected.has(x.type)) ? 'checked' : ''}>
+      <span class="tp-name">${esc(title)}</span>
+      <span class="tp-meta">${esc(meta)}</span>
+    </label>`;
+  }).join('') + blocked.map(name => `
+    <label class="task-pick disabled">
+      <input type="checkbox" disabled>
+      <span class="tp-name">${esc(name)}</span>
+      <span class="tp-meta">接口不支持</span>
+    </label>`).join('');
+  taskPickLoaded = items.length > 0;
+  box.onchange = () => {
+    taskPickDirty = true;
+    schedulePickSave();
+  };
 }
 
 function fillForm(){
   const mc = state.music || {};
   $('music_cookie').value = mc.cookie || '';
   $('music_enable').checked = mc.sign_enable !== false;
+  $('medal_enable').checked = mc.medal_enable !== false;
+  $('medal_tasks_enable').checked = mc.medal_tasks_enable !== false;
+  $('card_pool_enable').checked = mc.card_pool_enable !== false;
 }
 
 async function refresh(){
@@ -163,18 +472,35 @@ async function refresh(){
   }
 }
 
-async function saveAll(silent){
+async function saveAll(silent, reload = true){
+  clearTimeout(selectionSaveTimer);
   try{
+    const music = {cookie: $('music_cookie').value, sign_enable: $('music_enable').checked,
+                   medal_enable: $('medal_enable').checked,
+                   medal_tasks_enable: $('medal_tasks_enable').checked,
+                   card_pool_enable: $('card_pool_enable').checked};
+    // 勾选设置每次都随保存提交（不再只在「有改动」时提交，避免刷新/执行后丢失）
+    if (medalPickLoaded){
+      music.medal_selected_ids = [...document.querySelectorAll('#medalPick input[type=checkbox]')]
+        .filter(b => b.checked).map(b => b.value);
+    }
+    if (taskPickLoaded){
+      music.medal_task_types = [...document.querySelectorAll('#taskPick input[type=checkbox]')]
+        .filter(b => b.checked).map(b => b.value);
+    }
     const r = await fetch(API + '/save', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        music: {cookie: $('music_cookie').value, sign_enable: $('music_enable').checked},
-      }),
+      body: JSON.stringify({music}),
     });
     if (!r.ok) throw new Error();
+    state.music = Object.assign(state.music || {}, music);
+    taskPickDirty = false;
+    medalPickDirty = false;
+    setPickSaveState('已保存 ' + new Date().toLocaleTimeString(), '#22c55e');
     if (!silent) toast('已保存', 'ok');
-    await refresh();
+    if (reload) await refresh();
   }catch(e){
+    setPickSaveState('保存失败，请确认程序在运行', '#ef4444');
     toast('保存失败：程序可能已经退出', 'err');
   }
 }
@@ -224,10 +550,47 @@ async function poll(){
       running = false;
       $('btnRun').disabled = false;
       $('btnRun').textContent = '执行任务';
-      $('logStat').textContent = '已完成';
+      $('logStat').textContent = '已结束';
       await refresh();
     }
   }catch(e){ /* ignore */}
+}
+
+async function refreshLive(){
+  const btn = $('btnRefresh');
+  btn.disabled = true;
+  btn.textContent = '刷新中…';
+  try{
+    await saveAll(true);
+    const r = await fetch(API + '/refresh', {method: 'POST'});
+    const d = await r.json();
+    if (!d.ok){ toast(d.error || '刷新失败', 'err'); return; }
+    await refresh();
+    toast('已更新', 'ok');
+  }catch(e){
+    toast('刷新失败：程序可能已经退出', 'err');
+  }finally{
+    btn.disabled = false;
+    btn.textContent = '刷新状态';
+  }
+}
+
+async function loadTaskList(){
+  const btn = $('btnLoadTasks');
+  btn.disabled = true;
+  btn.textContent = '刷新中…';
+  try{
+    await saveAll(true);
+    const r = await fetch(API + '/refresh', {method: 'POST'});
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || '刷新失败');
+    await refresh();
+  }catch(e){
+    toast(e.message || '刷新失败', 'err');
+  }finally{
+    btn.disabled = false;
+    btn.textContent = '刷新任务列表';
+  }
 }
 
 // ---- 两步式快捷登录
@@ -346,8 +709,42 @@ $('btnLoginMusic').onclick = () => {
 $('loginGrab').onclick = grabLogin;
 $('loginClose').onclick = closeLogin;
 $('loginModal').onclick = e => { if (e.target.id === 'loginModal') closeLogin(); };
+function setAllMedalPicks(checked){
+  document.querySelectorAll('#medalPick input[type=checkbox]')
+    .forEach(b => { b.checked = checked; });
+  medalPickDirty = true;
+  renderTaskPick();
+  schedulePickSave();
+}
+function setAllTaskPicks(checked){
+  document.querySelectorAll('#taskPick input[type=checkbox]:not(:disabled)')
+    .forEach(b => { b.checked = checked; });
+  taskPickDirty = true;
+  schedulePickSave();
+}
+function setAutoTaskPicks(){
+  document.querySelectorAll('#taskPick input[type=checkbox]:not(:disabled)')
+    .forEach(b => { b.checked = AUTO_TASK_TYPES.includes(b.value); });
+  taskPickDirty = true;
+  schedulePickSave();
+}
+function setTryAllTaskPicks(){
+  // 购买/付费/超会类不自动勾选，避免误花钱；其余全部尝试上报
+  const blocked = /buy_|purchase|pay|supvip|svip|vip|mp_light_activity/i;
+  document.querySelectorAll('#taskPick input[type=checkbox]:not(:disabled)').forEach(b => {
+    b.checked = !blocked.test(b.value);
+  });
+  taskPickDirty = true;
+  schedulePickSave();
+}
+$('btnMedalAll').onclick = () => setAllMedalPicks(true);
+$('btnMedalNone').onclick = () => setAllMedalPicks(false);
+$('btnTaskTryAll').onclick = setTryAllTaskPicks;
+$('btnTaskAll').onclick = setAutoTaskPicks;
+$('btnTaskNone').onclick = () => setAllTaskPicks(false);
 $('btnSave').onclick = () => saveAll(false);
-$('btnRefresh').onclick = refresh;
+$('btnRefresh').onclick = refreshLive;
+$('btnLoadTasks').onclick = loadTaskList;
 $('btnRun').onclick = run;
 
 (async () => {

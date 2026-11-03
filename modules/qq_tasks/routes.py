@@ -1,5 +1,8 @@
 from pathlib import Path
 
+import threading
+import time
+
 from fastapi import APIRouter, Body
 from fastapi.responses import FileResponse, JSONResponse
 
@@ -8,6 +11,8 @@ from modules.qq_tasks import core
 UI_PATH = Path(__file__).resolve().parent / "ui.html"
 
 router = APIRouter(prefix="/qq")
+
+_refresh_lock = threading.Lock()
 
 
 def _which(value: str) -> str:
@@ -46,6 +51,34 @@ def save(body: dict = Body(...)):
         music["cookie"] = core.norm_cookie(music["cookie"])
     core.save_music(music)
     return {"ok": True}
+
+
+@router.post("/api/refresh")
+def refresh():
+    """只读刷新乐迷勋章状态，不签到。"""
+    cfg = core.load_music()
+    if not cfg.get("cookie"):
+        return JSONResponse({"ok": False, "error": "QQ 音乐还没登录"},
+                            status_code=400)
+    if not _refresh_lock.acquire(blocking=False):
+        return JSONResponse({"ok": False, "error": "正在刷新，稍等一下"},
+                            status_code=409)
+    try:
+        medal = core.refresh_medals(cfg["cookie"])
+        try:
+            sign = core.MusicClient(cfg["cookie"]).sign_status()
+        except core.QQError as exc:
+            sign = {"error": str(exc)}
+        sign["at"] = int(time.time())
+        core.save_state({**core.load_state(), "medal": medal, "sign": sign,
+                         "fetched_at": int(time.time())})
+        return {"ok": True, "medal": medal, "sign": sign}
+    except core.QQError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": f"刷新失败：{exc}"}, status_code=500)
+    finally:
+        _refresh_lock.release()
 
 
 @router.post("/api/run")
