@@ -12,6 +12,12 @@ html{--task-accent:#6d28d9;--task-accent-fg:#fff}
 html[data-theme="dark"]{--task-accent:#a78bfa;--task-accent-fg:#1e1b4b}
 html[data-theme="ocean"]{--task-accent:#22d3ee;--task-accent-fg:#062a36}
 html[data-theme="purple"]{--task-accent:#c084fc;--task-accent-fg:#1b1229}
+.task-pick{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--mp-border);font-size:13px;cursor:pointer}
+.task-pick:last-child{border-bottom:0}
+.task-pick input{width:16px;height:16px;flex:none}
+.task-pick .tp-name{flex:1;min-width:0}
+.task-pick .tp-meta{color:var(--mp-muted);font-size:12px;white-space:nowrap}
+.task-pick.disabled{opacity:.55;cursor:default}
 </style>
 </head>
 <body>
@@ -104,7 +110,7 @@ html[data-theme="purple"]{--task-accent:#c084fc;--task-accent-fg:#1b1229}
     <div class="card">
       <div class="panel-head">
         <span class="t">任务开关</span>
-        <span class="s">关掉的任务不会执行，也不会上报</span>
+        <span class="s">未单独勾选时，按这里的开关决定默认执行哪些</span>
       </div>
       <div class="field">
         <label>收藏歌曲</label>
@@ -148,6 +154,15 @@ html[data-theme="purple"]{--task-accent:#c084fc;--task-accent-fg:#1b1229}
         发布笔记会在你的主页留下公开内容，风险都比前三条高一个量级。
         评论虽然默认开着，但内容是公开的，文案请在下面自己改。
       </div>
+    </div>
+
+    <div class="card">
+      <div class="panel-head">
+        <span class="t">任务（自动识别）</span>
+        <button class="btn-ghost btn-sm" id="btnLoadTasks">刷新任务列表</button>
+      </div>
+      <div class="note">勾选要执行的任务；未勾选的不执行。已完成和未识别动作的任务不可勾选。保存过勾选后，以勾选为准。</div>
+      <div id="taskPick"><div class="empty">先登录并刷新状态，拿到任务列表后在这里勾选</div></div>
     </div>
 
     <div class="card">
@@ -223,9 +238,15 @@ if (EMBED) document.body.classList.add('embed');
 const TEXT_IDS = ['cookie','artist_name','group_id','publish_title','publish_text','comment_text'];
 const NUM_IDS = ['gap_min','gap_max','play_count','like_note_count'];
 const BOOL_IDS = ['collect_enable','like_note_enable','share_enable','comment_enable','publish_enable','play_enable'];
+const KIND_ENABLE = {
+  collect:'collect_enable', like_note:'like_note_enable', share:'share_enable',
+  comment:'comment_enable', publish:'publish_enable', play:'play_enable'
+};
 
 let state = {config:{}};
 let since = 0, polling = null, running = false;
+let taskPickLoaded = false;
+let taskPickDirty = false;
 
 const $ = id => document.getElementById(id);
 
@@ -358,6 +379,8 @@ function renderMissions(list){
 
 function classifyClient(m){
   const t = (m.title || '') + (m.subtitle || '');
+  const link = String((m.action || {}).link || '').toLowerCase();
+  if (link.includes('comment') || t.includes('评论')) return 'comment';
   if (t.includes('播放') || t.includes('听歌') || t.includes('收听')) return 'play';
   if (t.includes('笔记') && (t.includes('发布') || t.includes('图文'))) return 'publish';
   if (t.includes('分享')) return 'share';
@@ -366,10 +389,49 @@ function classifyClient(m){
   return '';
 }
 
+function renderTaskPick(missions){
+  const box = $('taskPick');
+  if (!box) return;
+  const list = (missions || []).filter(m => m.id != null && m.id !== '');
+  if (!list.length){
+    box.innerHTML = '<div class="empty">先登录并刷新状态，拿到任务列表后在这里勾选</div>';
+    taskPickLoaded = false;
+    return;
+  }
+  const saved = (state.config || {}).mission_ids;
+  const explicit = Array.isArray(saved);
+  const selected = explicit ? new Set(saved.map(String)) : null;
+  const config = state.config || {};
+  const enabled = kind => !!config[KIND_ENABLE[kind]];
+  let selectable = 0;
+  box.innerHTML = list.map(m => {
+    const kind = m.kind || classifyClient(m);
+    const total = m.total || 0, cur = m.current || 0;
+    const done = m.status === 'COMPLETED' || (total && cur >= total);
+    const disabled = done || !kind;
+    const checked = !disabled && (explicit ? selected.has(String(m.id)) : enabled(kind));
+    if (!disabled) selectable++;
+    const title = m.accelerate
+      ? (m.subtitle || m.title || '任务')
+      : (m.title || m.subtitle || '任务');
+    const risk = RISK[kind]
+      ? `<span class="badge ${RISK[kind] === 'risk' ? 'risk' : 'soft'}">${RISK_TEXT[RISK[kind]]}</span>` : '';
+    const meta = done ? '已完成' : (!kind ? '未识别动作' : `${cur}/${total || '—'}`);
+    return `<label class="task-pick ${disabled ? 'disabled' : ''}">
+      <input type="checkbox" value="${esc(String(m.id))}" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
+      <span class="tp-name">${esc(title)} ${risk}</span>
+      <span class="tp-meta">${esc(meta)}</span>
+    </label>`;
+  }).join('');
+  taskPickLoaded = selectable > 0;
+  box.onchange = () => { taskPickDirty = true; };
+}
+
 function applyState(s){
   if (!s) return;
   renderHero(s);
   renderMissions(s.missions || []);
+  renderTaskPick(s.missions || []);
 }
 
 // ---- 保存
@@ -380,6 +442,10 @@ function collectForm(){
     if ($(k)) out[k] = parseFloat($(k).value) || 0;
   });
   BOOL_IDS.forEach(k => { if ($(k)) out[k] = $(k).checked; });
+  if (taskPickLoaded && taskPickDirty){
+    out.mission_ids = [...document.querySelectorAll('#taskPick input[type=checkbox]:not(:disabled)')]
+      .filter(b => b.checked).map(b => b.value);
+  }
   return out;
 }
 
@@ -393,6 +459,7 @@ async function saveAll(silent){
     const d = await r.json();
     if (!d.ok) throw new Error(d.error || '保存失败');
     state.config = Object.assign(state.config || {}, body);
+    taskPickDirty = false;
     if (!silent) toast('已保存', 'ok');
     return true;
   }catch(e){
@@ -615,6 +682,7 @@ $('loginModal').onclick = e => { if (e.target.id === 'loginModal') closeLogin();
 
 $('btnSave').onclick = () => saveAll(false);
 $('btnRefresh').onclick = refresh;
+$('btnLoadTasks').onclick = refresh;
 $('btnRun').onclick = run;
 
 // ---- 初始化

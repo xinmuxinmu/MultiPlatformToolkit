@@ -10,12 +10,14 @@
 """
 from __future__ import annotations
 
+import base64
 import gzip
 import hashlib
 import http.client
 import json
 import random
 import re
+import string
 import threading
 import time
 import urllib.error
@@ -25,7 +27,7 @@ import uuid
 from pathlib import Path
 
 from app.paths import DATA_ROOT
-from cryptography.hazmat.primitives import padding
+from cryptography.hazmat.primitives import padding, serialization
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 VERSION = "1.1.0"
@@ -41,6 +43,13 @@ EAPI_HOST = "https://interface3.music.163.com"
 WEB_HOST = "https://music.163.com"
 EAPI_KEY = b"e82ckenh8dichen8"
 EAPI_SEP = "-36cd479b6b5-"
+
+WEAPI_PRESET_KEY = b"0CoJUm6Qyw8W8jud"
+WEAPI_IV = b"0102030405060708"
+WEAPI_BASE62 = string.ascii_letters + string.digits
+WEAPI_PUBLIC_KEY = b"""-----BEGIN PUBLIC KEY-----
+MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDgtQn2JZ34ZC28NWYpAUd98iZ37BUrX/aKzmFbt7clFSs6sXqHauqKWqdtLkF2KexO40H1YTX8z2lSgBBOAxLsvaklV8k4cBFK9snQXE9/DDaFt6Rr7iVZMldczhC0JNgTz+SHXT6CBHuX3e9SdB1Ua44oncaTWz7OBGLbCiK45wIDAQAB
+-----END PUBLIC KEY-----"""
 
 # 移动端 UA：eapi 请求必须带 Android/iOS 的 UA + os cookie，
 # 用 PC UA 打 eapi 会被当成异常客户端。
@@ -77,6 +86,28 @@ def eapi_encrypt(sign_path: str, payload: dict) -> str:
     padded = padder.update(raw.encode()) + padder.finalize()
     enc = Cipher(algorithms.AES(EAPI_KEY), modes.ECB()).encryptor()
     return (enc.update(padded) + enc.finalize()).hex().upper()
+
+
+# ---------------------------------------------------------------- weapi 加密
+
+def _aes_cbc(data: bytes, key: bytes) -> bytes:
+    padder = padding.PKCS7(128).padder()
+    padded = padder.update(data) + padder.finalize()
+    enc = Cipher(algorithms.AES(key), modes.CBC(WEAPI_IV)).encryptor()
+    return enc.update(padded) + enc.finalize()
+
+
+def weapi_encrypt(payload: dict) -> str:
+    """weapi 的双层 AES + RSA 参数。播放/播放地址接口只认这套。"""
+    text = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode()
+    secret = "".join(random.choice(WEAPI_BASE62) for _ in range(16)).encode()
+    first = base64.b64encode(_aes_cbc(text, WEAPI_PRESET_KEY))
+    params = base64.b64encode(_aes_cbc(first, secret)).decode()
+    pub = serialization.load_pem_public_key(WEAPI_PUBLIC_KEY).public_numbers()
+    size = (pub.n.bit_length() + 7) // 8
+    enc_sec = pow(int.from_bytes(secret[::-1], "big"),
+                  pub.e, pub.n).to_bytes(size, "big").hex()
+    return urllib.parse.urlencode({"params": params, "encSecKey": enc_sec})
 
 
 def parse_cookie(text: str) -> dict:
@@ -143,6 +174,8 @@ DEFAULT_CONFIG = {
     "publish_text": "今天也在听歌，记一笔。",
     "play_enable": False,
     "play_count": 1,
+    # 勾选要执行的任务 ID；None = 按上面的类型开关
+    "mission_ids": None,
     # 每个动作之间的随机间隔（秒），别调太小
     "gap_min": 1.5,
     "gap_max": 3.5,
@@ -238,14 +271,15 @@ class Client:
     def _uid_from_cookie(ck: dict):
         return ck.get("__csrf") or ""
 
-    def eapi(self, path: str, payload: dict, query: str = "", timeout=15, retries=2):
+    def eapi(self, path: str, payload: dict, query: str = "", timeout=15,
+             retries=2, host: str = EAPI_HOST):
         """path 形如 /eapi/fans/group/mission/all。
 
         interface3 偶尔会直接掐断连接（RemoteDisconnected），交给上层当业务
         失败处理太冤，这里退避重试几次。
         """
         sign_path = path.replace("/eapi/", "/api/", 1)
-        url = EAPI_HOST + path + (("?" + query) if query else "")
+        url = host + path + (("?" + query) if query else "")
         body = urllib.parse.urlencode(
             {"params": eapi_encrypt(sign_path, payload)}).encode()
         headers = {
@@ -279,6 +313,28 @@ class Client:
             raise FansError("登录态失效了，重新复制一次 Cookie")
         if code not in (200, None):
             raise FansError(f"接口返回 code={code}：{data.get('message') or ''}")
+        return data
+
+    def weapi(self, path: str, payload: dict, timeout=20):
+        """path 形如 /weapi/feedback/weblog。"""
+        ck = parse_cookie(self.cookie)
+        body = dict(payload)
+        body.setdefault("csrf_token", ck.get("__csrf", ""))
+        _, text = _post(WEB_HOST + path, weapi_encrypt(body).encode(), {
+            "User-Agent": UA_DESKTOP,
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Referer": WEB_HOST + "/",
+            "Cookie": self.cookie,
+        }, timeout=timeout)
+        try:
+            data = json.loads(text)
+        except Exception:
+            raise FansError(f"weapi 返回的不是 JSON：{text[:160]}")
+        code = data.get("code")
+        if code in (301, 302, 401):
+            raise FansError("登录态失效了，重新复制一次 Cookie")
+        if code not in (200, None):
+            raise FansError(f"weapi 返回 code={code}：{data.get('message') or ''}")
         return data
 
     # ---- 业务接口
@@ -362,37 +418,139 @@ class Client:
                 f"评论没发出去，code={code}：{data.get('message') or ''}")
         return data
 
-    def publish_note(self, title: str, msg: str, board_id: str, group_name: str):
+    def publish_note(self, title: str, msg: str, board_id: str, group_name: str,
+                     pics: str = ""):
         activity = json.dumps([{
             "id": str(board_id), "type": 3, "subType": 11,
             "name": group_name, "selected": True, "canChange": True,
         }], ensure_ascii=False)
-        return self.eapi("/eapi/note/share/friends/resource", {
+        payload = {
             "title": title, "msg": msg, "type": "noresource",
             "uuid": uuid.uuid4().hex, "addComment": False,
             "privacySetting": "0", "socialSpaceVisible": 1,
             "activityInfoList": activity,
-        })
-
-    def weblog_play(self, song_id, seconds=240, timeout=15):
-        """播放上报。走 web 明文接口 /api/feedback/weblog。"""
-        log = {
-            "action": "play",
-            "json": {
-                "download": 0, "end": "playend", "id": int(song_id),
-                "sourceId": int(song_id), "time": seconds, "type": "song",
-                "wifi": 0, "source": "list", "authType": "NORMAL",
-                "bitrate": 320, "songId": int(song_id),
-                "progress": seconds, "complete": True,
-            },
         }
-        body = json.dumps({"logs": json.dumps([log], ensure_ascii=False)}).encode()
-        return _post(WEB_HOST + "/api/feedback/weblog", body, {
+        if pics:
+            payload["pics"] = pics
+        return self.eapi("/eapi/note/share/friends/resource", payload)
+
+    def upload_node(self) -> str:
+        req = urllib.request.Request(
+            "http://wanproxy.127.net/lbs?version=1.0&bucketname=cloudmusic",
+            headers={"User-Agent": UA_DESKTOP})
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = json.loads(_decode(resp.read()))
+        except Exception as exc:  # noqa: BLE001
+            raise FansError(f"获取图片上传节点失败：{exc}")
+        nodes = data.get("upload") or []
+        if not nodes:
+            raise FansError("没有可用的图片上传节点")
+        return nodes[0]
+
+    def upload_image(self, image: bytes, ext: str = "jpg") -> str:
+        """把图片传到 NOS，返回发布动态需要的 pics JSON。"""
+        ext = (ext or "jpg").lower().lstrip(".")
+        token = self.eapi("/eapi/nos/token/alloc", {
+            "filename": f"cover.{ext}", "local": "false", "nos_product": 0,
+            "fileSize": len(image), "md5": hashlib.md5(image).hexdigest(),
+            "ext": ext, "type": "image",
+        }, host=WEB_HOST)
+        result = token.get("result") or {}
+        if not result.get("docId"):
+            raise FansError("获取图片上传凭证失败")
+        node = self.upload_node()
+        url = (f"{node}/{result['bucket']}/{result['objectKey']}"
+               "?version=1.0&offset=0&complete=true")
+        req = urllib.request.Request(url, data=image, method="PUT", headers={
+            "X-Nos-Token": result["token"],
+            "Content-Type": f"image/{'jpeg' if ext == 'jpg' else ext}",
+        })
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                resp.read()
+        except Exception as exc:  # noqa: BLE001
+            raise FansError(f"上传图片失败：{exc}")
+        info = self.eapi("/eapi/upload/event/img/v1",
+                         {"imgid": result["docId"], "format": ext},
+                         host=WEB_HOST)
+        pic = info.get("picInfo") or {}
+        if not pic.get("originId"):
+            raise FansError("图片上传后取不到图片信息")
+        return json.dumps([{
+            "originId": str(pic["originId"]),
+            "squareId": str(pic["squareId"]),
+            "rectangleId": str(pic["rectangleId"]),
+            "pcSquareId": str(pic["pcSquareId"]),
+            "pcRectangleId": str(pic["pcRectangleId"]),
+            "originJpgId": str(pic["originJpgId"]),
+            "width": pic.get("width") or 0,
+            "height": pic.get("height") or 0,
+            "index": 0,
+        }], ensure_ascii=False)
+
+    def weblog(self, logs: list):
+        data = self.weapi("/weapi/feedback/weblog", {
+            "logs": json.dumps(logs, ensure_ascii=False)})
+        if data.get("code") != 200:
+            raise FansError(f"播放日志上报失败（code={data.get('code')}）")
+
+    def song_detail(self, song_id) -> dict:
+        data = self.weapi("/weapi/v3/song/detail", {
+            "c": json.dumps([{"id": str(int(song_id)), "v": 0}],
+                            separators=(",", ":")),
+        })
+        songs = data.get("songs") or []
+        return songs[0] if songs else {}
+
+    def player_url(self, song_id) -> str:
+        data = self.weapi("/weapi/song/enhance/player/url/v1", {
+            "ids": f"[{int(song_id)}]", "level": "exhigh",
+            "encodeType": "aac",
+        })
+        item = (data.get("data") or [{}])[0]
+        if item.get("code") != 200 or not item.get("url"):
+            raise FansError(f"歌曲 {song_id} 没有可用播放地址")
+        return item["url"]
+
+    def play_once(self, song_id):
+        """完整播放上报链路：startplay → 取地址 → 拉一段音频 → play。"""
+        sid = int(song_id)
+        source, source_id, duration = "toplist", "", 0
+        try:
+            song = self.song_detail(sid)
+            duration = int(song.get("dt") or 0) // 1000
+            album = (song.get("al") or {}).get("id")
+            if album:
+                source, source_id = "album", str(album)
+        except FansError:
+            pass
+        content = f"id={source_id or sid}"
+        self.weblog([{"action": "startplay", "json": {
+            "id": sid, "type": "song", "content": content, "mainsite": "1"}}])
+        url = self.player_url(sid)
+        req = urllib.request.Request(url, headers={
             "User-Agent": UA_DESKTOP,
-            "Content-Type": "application/json",
             "Referer": WEB_HOST + "/",
+            "Accept": "*/*",
+            "Accept-Encoding": "identity",
+            "Range": "bytes=0-",
             "Cookie": self.cookie,
-        }, timeout=timeout)
+        })
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                resp.read(512 * 1024)
+        except Exception as exc:  # noqa: BLE001
+            raise FansError(f"拉取歌曲 {song_id} 音频失败：{exc}")
+        seconds = random.randint(3, 5)
+        if duration and duration < seconds:
+            seconds = duration
+        self.weblog([{"action": "play", "json": {
+            "type": "song", "wifi": 0, "download": 0, "id": sid,
+            "time": seconds, "end": "interrupt",
+            "source": source, "sourceId": source_id, "mainsite": "1",
+            "content": content,
+        }}])
 
 
 # ---------------------------------------------------------------- 解析
@@ -515,6 +673,8 @@ def parse_missions(data: dict) -> list:
         items.append(_mission_item(one, accelerate=True))
     elif isinstance(one, list):
         items.extend(_mission_item(m, accelerate=True) for m in one if isinstance(m, dict))
+    for item in items:
+        item["kind"] = classify(item)
     return items
 
 
@@ -719,41 +879,70 @@ class NeteaseFans:
                         "（App 打开乐迷团 → 右上角分享 → 复制链接里那串数字）")
 
     # ---- 写操作
+    def _selected_missions(self) -> set[str] | None:
+        raw = self.cfg.get("mission_ids")
+        if not isinstance(raw, (list, tuple, set)):
+            return None
+        return {str(x) for x in raw if str(x or "").strip()}
+
     def run(self) -> dict:
         client = self._client()
         group_id = self._resolve_group(client)
         before = self._snapshot(client, group_id)
+        if before is None:
+            self.log("error", "读取任务列表失败，本次先不执行")
+            return {"ok": 0, "fail": 1, "skipped": 0, "error": "读取任务列表失败"}
 
-        plan = self._build_plan(before)
+        selected = self._selected_missions()
+        pending = self._build_plan(before)
+        plan = pending if selected is None else [
+            m for m in pending if str(m.get("id")) in selected
+        ]
+        unselected = 0 if selected is None else sum(
+            1 for m in pending if str(m.get("id")) not in selected
+        )
         if not plan:
-            self.log("info", "今天的任务都已经完成了，没有要动的")
-            return {"ok": 0, "already": len(before), "fail": 0, "skipped": 0}
+            if selected is None:
+                self.log("info", "今天的任务都已经完成了，没有要动的")
+            elif not selected:
+                self.log("info", "没有勾选任何任务，跳过")
+            else:
+                self.log("info", "勾选的任务都完成了，没有要动的")
+            return {"ok": 0, "already": len(before) - len(pending),
+                    "fail": 0, "skipped": unselected}
+        if unselected:
+            self.log("info", f"未勾选 {unselected} 项，跳过")
 
-        done = fail = skipped = 0
+        done = fail = 0
+        skipped = unselected
         board_id = ""
         group_name = ""
+        avatar = ""
         try:
             ginfo = (client.group_detail(group_id).get("data") or {}).get("fansGroupInfo") or {}
             board_id = ginfo.get("boardId") or ""
             group_name = ginfo.get("fansGroupName") or ""
+            avatar = ginfo.get("headAvatarUrl") or ""
         except FansError:
             pass
 
+        submitted = []
         for item in plan:
-            kind = classify(item)
+            kind = item.get("kind") or classify(item)
             label = item.get("subtitle") or item.get("title")
             if not kind:
                 self.log("warn", f"不认识这个任务，跳过：{label}")
                 skipped += 1
                 continue
-            if not self._enabled(kind):
+            if selected is None and not self._enabled(kind):
                 self.log("info", f"「{label}」的开关是关的，跳过")
                 skipped += 1
                 continue
             try:
-                if self._do(client, kind, item, group_id, board_id, group_name):
-                    done += 1
-                    self.log("success", f"{label} → 已提交")
+                if self._do(client, kind, item, group_id, board_id,
+                            group_name, avatar):
+                    submitted.append(item)
+                    self.log("info", f"{label} → 已提交，等待核验")
                 else:
                     skipped += 1
             except FansError as exc:
@@ -762,24 +951,61 @@ class NeteaseFans:
             self._sleep()
 
         after = self._snapshot(client, group_id)
+        if after is None:
+            after = before
+        elif submitted and any(not self._moved(before, after, m) for m in submitted):
+            time.sleep(2)
+            retry = self._snapshot(client, group_id)
+            if retry is not None:
+                after = retry
+
+        old = {str(m["id"]): m for m in before}
+        new = {str(m["id"]): m for m in after}
+        for item in submitted:
+            mid = str(item.get("id"))
+            label = item.get("subtitle") or item.get("title")
+            prev = (old.get(mid) or {}).get("current") or 0
+            cur = (new.get(mid) or {}).get("current") or 0
+            total = (new.get(mid) or {}).get("total") or item.get("total") or 0
+            finished = ((new.get(mid) or {}).get("status") == "COMPLETED"
+                        or (total and cur >= total))
+            if finished or cur > prev:
+                done += 1
+                self.log("success", f"{label} → 已计入（{cur}/{total or '—'}）")
+            else:
+                fail += 1
+                self.log("warn", f"{label} → 提交后进度没变"
+                                  f"（{cur}/{total or '—'}），可能未计入")
+
         gained = self._gain(before, after)
         self.log("info", f"任务状态：完成 {done} · 失败 {fail} · 跳过 {skipped}")
         if gained:
             self.log("success", "本次亲密值变化：" + "，".join(gained))
         save_state(self.refresh())
         return {"ok": done, "fail": fail, "skipped": skipped,
-                "already": max(0, len(before) - len(plan)), "gain": gained}
+                "already": max(0, len(before) - len(pending)), "gain": gained}
+
+    @staticmethod
+    def _moved(before: list, after: list, item: dict) -> bool:
+        mid = str(item.get("id"))
+        old = next((m for m in before if str(m.get("id")) == mid), {})
+        new = next((m for m in after if str(m.get("id")) == mid), {})
+        cur = new.get("current") or 0
+        total = new.get("total") or 0
+        return (new.get("status") == "COMPLETED"
+                or (total and cur >= total)
+                or cur > (old.get("current") or 0))
 
     def _enabled(self, kind: str) -> bool:
         return bool(self.cfg.get(f"{kind}_enable", kind in ("collect", "like_note")))
 
-    def _snapshot(self, client, group_id) -> list:
+    def _snapshot(self, client, group_id):
         try:
             raw = client.missions(group_id).get("data") or {}
             return parse_missions(raw)
         except FansError as exc:
             self.log("warn", f"读任务列表失败：{exc}")
-            return []
+            return None
 
     @staticmethod
     def _gain(before: list, after: list) -> list:
@@ -804,7 +1030,8 @@ class NeteaseFans:
             plan.append(m)
         return plan
 
-    def _do(self, client, kind, item, group_id, board_id, group_name) -> bool:
+    def _do(self, client, kind, item, group_id, board_id, group_name,
+            avatar: str = "") -> bool:
         action = item.get("action") or {}
         need = max(0, (item.get("total") or 1) - (item.get("current") or 0))
 
@@ -848,10 +1075,24 @@ class NeteaseFans:
             if not board_id:
                 self.log("warn", "没拿到乐迷团 boardId，发不了笔记")
                 return False
+            if not avatar:
+                self.log("warn", "没拿到乐迷团头像，发布图文笔记需要一张图片")
+                return False
+            try:
+                req = urllib.request.Request(
+                    avatar, headers={"User-Agent": UA_DESKTOP})
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    image = resp.read()
+            except Exception as exc:  # noqa: BLE001
+                raise FansError(f"下载乐迷团头像失败：{exc}")
+            if not image:
+                raise FansError("乐迷团头像下载下来是空的")
+            ext = "png" if ".png" in avatar.lower() else "jpg"
+            pics = client.upload_image(image, ext)
             client.publish_note(
                 str(self.cfg.get("publish_title") or "").strip(),
                 str(self.cfg.get("publish_text") or "").strip(),
-                board_id, group_name)
+                board_id, group_name, pics)
             return True
 
         if kind == "play":
@@ -862,11 +1103,13 @@ class NeteaseFans:
             if not ids:
                 self.log("warn", "播放任务没带歌曲 ID，跳过")
                 return False
-            # 任务要几条就播几条，play_count 只当作下限，别自己少播一半
+            # 任务要几条就播几条，play_count 只当作下限，别自己少播一半。
+            # 随机抽不同的歌，避免反复播同一首导致服务端不重复计数。
             count = min(len(ids), max(need or 1, int(self.cfg.get("play_count") or 1)))
-            for sid in ids[:count]:
-                client.weblog_play(sid)
-                self._sleep()
+            for i, sid in enumerate(random.sample(ids, count)):
+                client.play_once(sid)
+                if i < count - 1:
+                    self._sleep()
             return True
 
         return False
