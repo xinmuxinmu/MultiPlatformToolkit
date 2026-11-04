@@ -497,6 +497,7 @@ def complete_medal_tasks(client: MusicClient, medal_id: str, selected=None) -> d
     before = sum(1 for t in tasks if _task_done(t))
     picked = _selected_task_types(selected)
     fail = 0
+    failed = []
     card_pools = set()
     for t in tasks:
         if str(t.get("TaskType") or "").strip() == "medal_card_draw_card":
@@ -516,13 +517,17 @@ def complete_medal_tasks(client: MusicClient, medal_id: str, selected=None) -> d
             continue
         if typ == "medal_praised_singer":
             try:
-                _got, bad = client.praise_rank(medal_id, need)
-                fail += bad
+                got, _bad = client.praise_rank(medal_id, need)
+                if got < need:
+                    fail += 1
+                    failed.append(str(t.get("Title") or typ))
             except QQError:
                 fail += 1
+                failed.append(str(t.get("Title") or typ))
         elif typ == "medal_card_draw_card":
             if not card_pools:
                 fail += 1
+                failed.append(str(t.get("Title") or typ))
                 continue
             pool = next(iter(card_pools))
             for _ in range(need):
@@ -530,6 +535,7 @@ def complete_medal_tasks(client: MusicClient, medal_id: str, selected=None) -> d
                     client.draw_card(pool)
                 except QQError:
                     fail += 1
+                    failed.append(str(t.get("Title") or typ))
                     break
                 time.sleep(random.uniform(1.0, 1.8))
         else:
@@ -540,6 +546,7 @@ def complete_medal_tasks(client: MusicClient, medal_id: str, selected=None) -> d
                     ok, _code = client.report_task(medal_id, t)
                 if not ok:
                     fail += 1
+                    failed.append(str(t.get("Title") or typ))
                     break
                 time.sleep(random.uniform(0.8, 1.4))
     after = client.task_list(medal_id)
@@ -557,6 +564,7 @@ def complete_medal_tasks(client: MusicClient, medal_id: str, selected=None) -> d
         "skipped": sum(1 for v in views if not v["done"]),
         "unselected": len(unselected),
         "remaining": remaining,
+        "failed": failed,
         "tasks": views,
         "card_pools": sorted(card_pools),
     }
@@ -760,6 +768,8 @@ class Task:
                         names = "、".join(tr["remaining"][:6])
                         more = " 等" if len(tr["remaining"]) > 6 else ""
                         self.log("info", f"{name}：已选任务未完成 {names}{more}")
+                    if tr.get("failed"):
+                        self.log("warn", f"{name}：处理失败 {('、'.join(tr['failed'][:6]))}")
                     if tr["unselected"]:
                         self.log("info", f"{name}：未勾选 {tr['unselected']} 项")
                 except QQError as exc:
