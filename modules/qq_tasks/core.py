@@ -29,7 +29,7 @@ from pathlib import Path
 
 from app.paths import DATA_ROOT
 
-VERSION = "1.3.0"
+VERSION = "1.3.1"
 APP_ID = "qq-tasks"
 
 HOME = DATA_ROOT / "qq_tasks"
@@ -481,7 +481,7 @@ def _task_view(t: dict) -> dict:
         "finish": int(t.get("AchievedTimes") or 0),
         "need": int(t.get("TotalTimes") or 0),
         "done": _task_done(t),
-        "auto": typ in REPORT_TASK_TYPES or typ in ("sign_in", "medal_praised_singer"),
+        "auto": typ in AUTO_MEDAL_TASK_TYPES or typ == "sign_in",
     }
 
 
@@ -498,6 +498,7 @@ def complete_medal_tasks(client: MusicClient, medal_id: str, selected=None) -> d
     picked = _selected_task_types(selected)
     fail = 0
     failed = []
+    manual = []
     card_pools = set()
     for t in tasks:
         if str(t.get("TaskType") or "").strip() == "medal_card_draw_card":
@@ -514,6 +515,11 @@ def complete_medal_tasks(client: MusicClient, medal_id: str, selected=None) -> d
         achieved = int(t.get("AchievedTimes") or 0)
         need = max(0, total - achieved)
         if need <= 0:
+            continue
+        if typ not in AUTO_MEDAL_TASK_TYPES:
+            # 新广告、农场游戏、完整听歌这类服务端要真实行为，上报接口
+            # 直接拒收；不硬试，如实提示需要手动，也不计入失败。
+            manual.append(str(t.get("Title") or typ))
             continue
         if typ == "medal_praised_singer":
             try:
@@ -553,7 +559,8 @@ def complete_medal_tasks(client: MusicClient, medal_id: str, selected=None) -> d
     views = [_task_view(t) for t in after]
     done = sum(1 for v in views if v["done"])
     remaining = [v["name"] for v in views
-                 if not v["done"] and v["type"] != "sign_in" and v["type"] in picked]
+                 if not v["done"] and v["type"] != "sign_in"
+                 and v["type"] in picked and v["type"] in AUTO_MEDAL_TASK_TYPES]
     unselected = [v for v in views
                   if not v["done"] and v["type"] != "sign_in" and v["type"] not in picked]
     return {
@@ -564,6 +571,7 @@ def complete_medal_tasks(client: MusicClient, medal_id: str, selected=None) -> d
         "skipped": sum(1 for v in views if not v["done"]),
         "unselected": len(unselected),
         "remaining": remaining,
+        "manual": manual,
         "failed": failed,
         "tasks": views,
         "card_pools": sorted(card_pools),
@@ -770,6 +778,11 @@ class Task:
                         self.log("info", f"{name}：已选任务未完成 {names}{more}")
                     if tr.get("failed"):
                         self.log("warn", f"{name}：处理失败 {('、'.join(tr['failed'][:6]))}")
+                    if tr.get("manual"):
+                        names = "、".join(tr["manual"][:6])
+                        more = " 等" if len(tr["manual"]) > 6 else ""
+                        self.log("info", f"{name}：需要手动完成 {names}{more}"
+                                         f"（要真实看广告/听歌/玩游戏）")
                     if tr["unselected"]:
                         self.log("info", f"{name}：未勾选 {tr['unselected']} 项")
                 except QQError as exc:
