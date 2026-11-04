@@ -10,14 +10,12 @@
 """
 from __future__ import annotations
 
-import base64
 import gzip
 import hashlib
 import http.client
 import json
 import random
 import re
-import string
 import threading
 import time
 import urllib.error
@@ -27,10 +25,10 @@ import uuid
 from pathlib import Path
 
 from app.paths import DATA_ROOT
-from cryptography.hazmat.primitives import padding, serialization
+from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 APP_ID = "netease-fans"
 
 HOME = DATA_ROOT / "netease_fans"
@@ -44,19 +42,12 @@ WEB_HOST = "https://music.163.com"
 EAPI_KEY = b"e82ckenh8dichen8"
 EAPI_SEP = "-36cd479b6b5-"
 
-WEAPI_PRESET_KEY = b"0CoJUm6Qyw8W8jud"
-WEAPI_IV = b"0102030405060708"
-WEAPI_BASE62 = string.ascii_letters + string.digits
-WEAPI_PUBLIC_KEY = b"""-----BEGIN PUBLIC KEY-----
-MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDgtQn2JZ34ZC28NWYpAUd98iZ37BUrX/aKzmFbt7clFSs6sXqHauqKWqdtLkF2KexO40H1YTX8z2lSgBBOAxLsvaklV8k4cBFK9snQXE9/DDaFt6Rr7iVZMldczhC0JNgTz+SHXT6CBHuX3e9SdB1Ua44oncaTWz7OBGLbCiK45wIDAQAB
------END PUBLIC KEY-----"""
-
 # 移动端 UA：eapi 请求必须带 Android/iOS 的 UA + os cookie，
 # 用 PC UA 打 eapi 会被当成异常客户端。
 UA_ANDROID = ("NeteaseMusic/9.2.85.250902150000(9020085);Dalvik/2.1.0 "
               "(Linux; U; Android 14; PGT-AN20 Build/UKQ1.231003.002)")
 
-# web 明文接口（评论、播放上报）用桌面 UA，注意 Cookie 里仍保留 os=android，
+# web 明文接口（评论、图片上传）用桌面 UA，注意 Cookie 里仍保留 os=android，
 # 这是 App 侧的会话特征，去掉反而容易触发验证。
 UA_DESKTOP = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
               "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -86,28 +77,6 @@ def eapi_encrypt(sign_path: str, payload: dict) -> str:
     padded = padder.update(raw.encode()) + padder.finalize()
     enc = Cipher(algorithms.AES(EAPI_KEY), modes.ECB()).encryptor()
     return (enc.update(padded) + enc.finalize()).hex().upper()
-
-
-# ---------------------------------------------------------------- weapi 加密
-
-def _aes_cbc(data: bytes, key: bytes) -> bytes:
-    padder = padding.PKCS7(128).padder()
-    padded = padder.update(data) + padder.finalize()
-    enc = Cipher(algorithms.AES(key), modes.CBC(WEAPI_IV)).encryptor()
-    return enc.update(padded) + enc.finalize()
-
-
-def weapi_encrypt(payload: dict) -> str:
-    """weapi 的双层 AES + RSA 参数。播放/播放地址接口只认这套。"""
-    text = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode()
-    secret = "".join(random.choice(WEAPI_BASE62) for _ in range(16)).encode()
-    first = base64.b64encode(_aes_cbc(text, WEAPI_PRESET_KEY))
-    params = base64.b64encode(_aes_cbc(first, secret)).decode()
-    pub = serialization.load_pem_public_key(WEAPI_PUBLIC_KEY).public_numbers()
-    size = (pub.n.bit_length() + 7) // 8
-    enc_sec = pow(int.from_bytes(secret[::-1], "big"),
-                  pub.e, pub.n).to_bytes(size, "big").hex()
-    return urllib.parse.urlencode({"params": params, "encSecKey": enc_sec})
 
 
 def parse_cookie(text: str) -> dict:
@@ -171,6 +140,8 @@ DEFAULT_CONFIG = {
     # 高风险：会留下公开内容 / 等同刷播放量，默认关闭
     "publish_enable": False,
     "publish_title": "今天的循环是这首",
+    # 发布任务要求文案 ≥10 字并配图；执行时自动追加随机尾号，
+    # 防止内容相同的笔记被服务端合并、后续发布不涨进度。
     "publish_text": "今天也在听歌，记一笔。",
     "play_enable": False,
     "play_count": 1,
@@ -313,28 +284,6 @@ class Client:
             raise FansError("登录态失效了，重新复制一次 Cookie")
         if code not in (200, None):
             raise FansError(f"接口返回 code={code}：{data.get('message') or ''}")
-        return data
-
-    def weapi(self, path: str, payload: dict, timeout=20):
-        """path 形如 /weapi/feedback/weblog。"""
-        ck = parse_cookie(self.cookie)
-        body = dict(payload)
-        body.setdefault("csrf_token", ck.get("__csrf", ""))
-        _, text = _post(WEB_HOST + path, weapi_encrypt(body).encode(), {
-            "User-Agent": UA_DESKTOP,
-            "Content-Type": "application/x-www-form-urlencoded",
-            "Referer": WEB_HOST + "/",
-            "Cookie": self.cookie,
-        }, timeout=timeout)
-        try:
-            data = json.loads(text)
-        except Exception:
-            raise FansError(f"weapi 返回的不是 JSON：{text[:160]}")
-        code = data.get("code")
-        if code in (301, 302, 401):
-            raise FansError("登录态失效了，重新复制一次 Cookie")
-        if code not in (200, None):
-            raise FansError(f"weapi 返回 code={code}：{data.get('message') or ''}")
         return data
 
     # ---- 业务接口
@@ -489,68 +438,18 @@ class Client:
             "index": 0,
         }], ensure_ascii=False)
 
-    def weblog(self, logs: list):
-        data = self.weapi("/weapi/feedback/weblog", {
-            "logs": json.dumps(logs, ensure_ascii=False)})
-        if data.get("code") != 200:
-            raise FansError(f"播放日志上报失败（code={data.get('code')}）")
+    def play_progress(self, song_id):
+        """播放任务进度上报：和分享任务同一套 forward/progress，action=play。
 
-    def song_detail(self, song_id) -> dict:
-        data = self.weapi("/weapi/v3/song/detail", {
-            "c": json.dumps([{"id": str(int(song_id)), "v": 0}],
-                            separators=(",", ":")),
-        })
-        songs = data.get("songs") or []
-        return songs[0] if songs else {}
-
-    def player_url(self, song_id) -> str:
-        data = self.weapi("/weapi/song/enhance/player/url/v1", {
-            "ids": f"[{int(song_id)}]", "level": "exhigh",
-            "encodeType": "aac",
-        })
-        item = (data.get("data") or [{}])[0]
-        if item.get("code") != 200 or not item.get("url"):
-            raise FansError(f"歌曲 {song_id} 没有可用播放地址")
-        return item["url"]
-
-    def play_once(self, song_id):
-        """完整播放上报链路：startplay → 取地址 → 拉一段音频 → play。"""
-        sid = int(song_id)
-        source, source_id, duration = "toplist", "", 0
-        try:
-            song = self.song_detail(sid)
-            duration = int(song.get("dt") or 0) // 1000
-            album = (song.get("al") or {}).get("id")
-            if album:
-                source, source_id = "album", str(album)
-        except FansError:
-            pass
-        content = f"id={source_id or sid}"
-        self.weblog([{"action": "startplay", "json": {
-            "id": sid, "type": "song", "content": content, "mainsite": "1"}}])
-        url = self.player_url(sid)
-        req = urllib.request.Request(url, headers={
-            "User-Agent": UA_DESKTOP,
-            "Referer": WEB_HOST + "/",
-            "Accept": "*/*",
-            "Accept-Encoding": "identity",
-            "Range": "bytes=0-",
-            "Cookie": self.cookie,
-        })
-        try:
-            with urllib.request.urlopen(req, timeout=20) as resp:
-                resp.read(512 * 1024)
-        except Exception as exc:  # noqa: BLE001
-            raise FansError(f"拉取歌曲 {song_id} 音频失败：{exc}")
-        seconds = random.randint(3, 5)
-        if duration and duration < seconds:
-            seconds = duration
-        self.weblog([{"action": "play", "json": {
-            "type": "song", "wifi": 0, "download": 0, "id": sid,
-            "time": seconds, "end": "interrupt",
-            "source": source, "sourceId": source_id, "mainsite": "1",
-            "content": content,
-        }}])
+        fansGroupId 固定传 "null"（App 真实请求就是这样），resourceType=4。
+        实测只调这一下，任务进度几秒内就会 +1，不需要 weblog/拉音频。
+        """
+        q = (f"resourceId={song_id}&action=play"
+             f"&fansGroupId=null&resourceType=4")
+        return self.eapi("/eapi/fans/group/mission/forward/progress", {
+            "resourceId": str(song_id), "action": "play",
+            "fansGroupId": "null", "resourceType": "4",
+        }, query=q)
 
 
 # ---------------------------------------------------------------- 解析
@@ -1078,6 +977,11 @@ class NeteaseFans:
             if not avatar:
                 self.log("warn", "没拿到乐迷团头像，发布图文笔记需要一张图片")
                 return False
+            base_text = str(self.cfg.get("publish_text") or "").strip()
+            if not base_text:
+                self.log("warn", "发布文案是空的，先去设置里填一句")
+                return False
+            title = str(self.cfg.get("publish_title") or "").strip() or group_name
             try:
                 req = urllib.request.Request(
                     avatar, headers={"User-Agent": UA_DESKTOP})
@@ -1089,10 +993,14 @@ class NeteaseFans:
                 raise FansError("乐迷团头像下载下来是空的")
             ext = "png" if ".png" in avatar.lower() else "jpg"
             pics = client.upload_image(image, ext)
-            client.publish_note(
-                str(self.cfg.get("publish_title") or "").strip(),
-                str(self.cfg.get("publish_text") or "").strip(),
-                board_id, group_name, pics)
+            # 任务要几条就发几条；文案加随机尾号，否则服务端把相同内容的
+            # 笔记合并成同一条动态，后面的发布都不涨进度。
+            for i in range(max(1, need)):
+                text = f"{base_text}（No.{random.randint(100, 999)}）"
+                client.publish_note(title, text, board_id, group_name, pics)
+                self.log("info", f"笔记已发布：{text}")
+                if i < max(1, need) - 1:
+                    self._sleep()
             return True
 
         if kind == "play":
@@ -1107,7 +1015,7 @@ class NeteaseFans:
             # 随机抽不同的歌，避免反复播同一首导致服务端不重复计数。
             count = min(len(ids), max(need or 1, int(self.cfg.get("play_count") or 1)))
             for i, sid in enumerate(random.sample(ids, count)):
-                client.play_once(sid)
+                client.play_progress(sid)
                 if i < count - 1:
                     self._sleep()
             return True
