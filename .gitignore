@@ -12,3 +12,6 @@ _tmp_dy_extract/
 _tmp_shot/
 _tmp_*.py
 .tmp_*.py
+
+# 会话临时产物（probe/实验脚本与抓包文件）
+/_*

@@ -11,6 +11,10 @@ if not exist ".venv\Scripts\python.exe" (
 set "PORT=%APP_PORT%"
 if not defined PORT set "PORT=18000"
 
+rem Quiet by default: the console stays blank, logs go to data\logs\app.log.
+rem Set APP_VERBOSE=1 before running to see the output in the console again.
+if not defined APP_VERBOSE set "APP_QUIET=1"
+
 rem If the port is already taken, offer to stop the old instance first.
 set "OLDPID="
 for /f "tokens=5" %%P in ('netstat -ano ^| findstr ":%PORT%" ^| findstr "LISTENING"') do set "OLDPID=%%P"
