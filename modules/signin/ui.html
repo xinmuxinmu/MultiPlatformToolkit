@@ -146,7 +146,7 @@ body.tool-tab #btnSave,body.tool-tab #btnAll{display:none}
     <div class="actions">
       <a class="back-home" href="/">返回首页</a>
       <button class="btn-ghost" id="btnSave">保存</button>
-      <button class="btn-main" id="btnAll">全部执行</button>
+      <button class="btn-main" id="btnAll">执行微博/贴吧/吾爱</button>
     </div>
   </header>
 
@@ -378,6 +378,26 @@ body.tool-tab #btnSave,body.tool-tab #btnAll{display:none}
       </div>
     </div>
 
+    <div class="group">
+      <div class="group-head">
+        <div>
+          <div class="t">用户任务中心</div>
+          <div class="d">打开手机版任务中心完成每日签到，并自动领取已完成任务的积分奖励</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="mtask_enable"><span class="slider"></span></label>
+      </div>
+      <div id="mtaskBody">
+        <div class="ta-label">手机版 Cookie（m.weibo.cn 的会话，和上面 weibo.com 的 Cookie 不通用，需要单独抓）</div>
+        <textarea id="mtask_cookie" style="height:56px" placeholder="SUB=...; SCF=...; SSOLoginState=...; MLOGIN=...; WEIBOCN_FROM=..."></textarea>
+        <div class="ta-label">获取方式：浏览器打开 <b>m.weibo.cn</b> 并登录 → F12 → 网络面板 → 刷新 → 点 m.weibo.cn 的文档请求 → 复制 Cookie 整行。<br>Cookie 里要带 <b>SUB</b> 字段；WEIBOCN_FROM 会自动改成 App 渠道号，不用管。</div>
+        <div class="field">
+          <label>自动关注</label>
+          <label class="switch"><input type="checkbox" id="mtask_follow_enable"><span class="slider"></span></label>
+          <span class="hint">开启后会每天自动关注推荐列表里的陌生人以完成「关注」任务（10积分）。介意账号关注太多人就不要开。</span>
+        </div>
+      </div>
+    </div>
+
     <div class="modal-foot">
       <button class="btn-ghost" id="cfgCancel">取消</button>
       <button class="btn-main" id="cfgSave">保存设置</button>
@@ -586,6 +606,7 @@ const CFG_IDS = ['repost_enable','repost_count','repost_author','repost_uid','re
                  'repost_links','comment_enable','comment_count','comment_url','comment_texts',
                  'like_enable','like_chaohua',
                  'fans_enable','fans_blogger_uid','fans_fans_uid',
+                 'mtask_enable','mtask_cookie','mtask_follow_enable',
                  'group_enable','group_name','group_text',
                  'dm_enable','dm_target','dm_morning','dm_noon','dm_night'];
 
@@ -606,6 +627,7 @@ function syncCfgDisabled(){
   document.getElementById('commentBody').classList.toggle('disabled', !document.getElementById('comment_enable').checked);
   document.getElementById('likeBody').classList.toggle('disabled', !document.getElementById('like_enable').checked);
   document.getElementById('fansBody').classList.toggle('disabled', !document.getElementById('fans_enable').checked);
+  document.getElementById('mtaskBody').classList.toggle('disabled', !document.getElementById('mtask_enable').checked);
   document.getElementById('groupBody').classList.toggle('disabled', !document.getElementById('group_enable').checked);
   document.getElementById('dmBody').classList.toggle('disabled', !document.getElementById('dm_enable').checked);
 }
@@ -613,6 +635,7 @@ document.getElementById('repost_enable').onchange = syncCfgDisabled;
 document.getElementById('comment_enable').onchange = syncCfgDisabled;
 document.getElementById('like_enable').onchange = syncCfgDisabled;
 document.getElementById('fans_enable').onchange = syncCfgDisabled;
+document.getElementById('mtask_enable').onchange = syncCfgDisabled;
 document.getElementById('group_enable').onchange = syncCfgDisabled;
 document.getElementById('dm_enable').onchange = syncCfgDisabled;
 
@@ -715,7 +738,7 @@ function flash(text){
 function setRunning(v){
   running = v;
   document.getElementById('btnAll').disabled = v;
-  document.getElementById('btnAll').textContent = v ? '执行中…' : '全部执行';
+  document.getElementById('btnAll').textContent = v ? '执行中…' : '执行微博/贴吧/吾爱';
   PLATFORMS.forEach(p => {
     document.getElementById('go-' + p.key).disabled = v;
     const st = document.getElementById('st-' + p.key);
@@ -768,7 +791,7 @@ async function poll(){
     clearInterval(polling); polling = null;
     running = false;
     document.getElementById('btnAll').disabled = false;
-    document.getElementById('btnAll').textContent = '全部执行';
+    document.getElementById('btnAll').textContent = '执行微博/贴吧/吾爱';
     let ok = 0, fail = 0, al = 0;
     PLATFORMS.forEach(p => {
       document.getElementById('go-' + p.key).disabled = false;

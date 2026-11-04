@@ -39,6 +39,14 @@ CONFIG_PATH = BASE_DIR / "config.json"
 UA_PC = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
          "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
 
+# 用户任务中心：m.weibo.cn 独立会话，且服务端按 UA 判断是否渲染 App 版页面，
+# UA 必须是真实微博 App webview 格式（Weibo (设备__weibo__版本...)）。
+MTASK_UA = ("Mozilla/5.0 (iPhone; CPU iPhone OS 18_2_1 like Mac OS X) "
+            "AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 "
+            "Weibo (iPhone13,3__weibo__16.10.3__iphone__os18.2.1)")
+MTASK_URL = ("https://m.weibo.cn/c/checkin?featurecode=from_sharingpage_to_mtask"
+             "&luicode=20000301&lfid=task_mine2_signend")
+
 
 # ---------------------------------------------------------------- 基础工具
 
@@ -204,6 +212,9 @@ class WeiboSenior:
         steps = [
             ("sign", "超话签到", self.cfg.get("cookie") is not None,
              lambda: self._sign_topics(cookie, result)),
+            ("mtask", "用户任务中心",
+             bool(self.cfg.get("mtask_enable")) and bool(self.cfg.get("mtask_cookie")),
+             lambda: self._do_user_task(result)),
             ("repost", "自动转发", bool(self.cfg.get("repost_enable")),
              lambda: self._do_repost(cookie, result)),
             ("comment", "自动评论", bool(self.cfg.get("comment_enable")),
@@ -282,6 +293,192 @@ class WeiboSenior:
         if actions.missing_csrf:
             raise SignError("Cookie 缺少 XSRF-TOKEN，这步做不了（原因见上方提示）")
         return actions
+
+    # ---- 用户任务中心（m.weibo.cn 独立会话） ----
+
+    def _mtask_headers(self, cookie_str):
+        return {
+            "Cookie": cookie_str,
+            "User-Agent": MTASK_UA,
+            "Referer": MTASK_URL,
+            "X-Requested-With": "XMLHttpRequest",
+            "Accept": "application/json, text/plain, */*",
+        }
+
+    def _mtask_json(self, url, cookie_str):
+        status, _, text = request(url, headers=self._mtask_headers(cookie_str), timeout=30)
+        if status != 200:
+            raise SignError(f"任务中心接口异常（HTTP {status}）")
+        try:
+            d = json.loads(text)
+        except ValueError:
+            raise SignError("任务中心接口返回的不是 JSON，手机版 Cookie 可能已过期")
+        if d.get("ok") != 1:
+            raise SignError(f"任务中心接口：{d.get('msg') or '未知错误'}")
+        return d.get("data") or {}
+
+    def _do_user_task(self, result):
+        self.log("head", "── 用户任务中心 ──")
+        mtask_cookie = norm_cookie(self.cfg.get("mtask_cookie", ""))
+        if not mtask_cookie:
+            raise SignError("还没填手机版 Cookie（m.weibo.cn），这步做不了")
+        ck = parse_cookie(mtask_cookie)
+        if "SUB" not in ck:
+            raise SignError("手机版 Cookie 里没有 SUB，多半没登录")
+        # 渠道号必须伪装成 App webview（10GA393010），否则服务端只渲染
+        # 「去 App 开宝箱」引导页，看不到任务中心。
+        ck["WEIBOCN_FROM"] = "10GA393010"
+        cookie_str = "; ".join(f"{k}={v}" for k, v in ck.items())
+
+        # 1. 打开任务中心页：服务端在页面加载时完成「今日签到」
+        self.log("info", "正在打开任务中心（加载页面即完成签到）…")
+        status, _, text = request(MTASK_URL, headers={
+            "Cookie": cookie_str, "User-Agent": MTASK_UA,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        }, timeout=30)
+        if status != 200:
+            raise SignError(f"任务中心页面打不开（HTTP {status}）")
+        m = re.search(r"st\s*:\s*['\"]([^'\"]+)", text)
+        st = m.group(1) if m else ""
+        if not st:
+            raise SignError("任务中心页面里没找到会话参数，手机版 Cookie 可能已过期")
+
+        # 2. 查签到状态
+        params = urllib.parse.urlencode({
+            "v3revision": "1", "new_version": "202502",
+            "ua": "iPhone13%2C3__weibo__16.10.3__iphone__os18.2.1",
+            "from": "10GA393010", "hash": "sign",
+            "luicode": "20000301", "lfid": "task_mine2_signend", "st": st,
+        })
+        data = self._mtask_json(
+            f"https://m.weibo.cn/c/checkin/ug/v2/signin/signin?{params}", cookie_str)
+        si = data.get("sign_in") or {}
+        btn_show = si.get("show")
+        campaign = si.get("signin_202512") or {}
+        signed_days = campaign.get("signedDays") or si.get("tips") or ""
+        camp_list = campaign.get("list") or []
+        today = camp_list[0] if camp_list else {}
+        is_signed = bool(today.get("is_signed")) or btn_show == 0
+
+        if not is_signed:
+            # 页面加载理论上已触发签到；没确认到就再刷一次页面复查
+            sleep_between(1.2, 1.8)
+            request(MTASK_URL, headers={
+                "Cookie": cookie_str, "User-Agent": MTASK_UA,
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            }, timeout=30)
+            data = self._mtask_json(
+                f"https://m.weibo.cn/c/checkin/ug/v2/signin/signin?{params}", cookie_str)
+            si = data.get("sign_in") or {}
+            campaign = si.get("signin_202512") or {}
+            signed_days = campaign.get("signedDays") or si.get("tips") or ""
+            camp_list = campaign.get("list") or []
+            today = camp_list[0] if camp_list else {}
+            is_signed = bool(today.get("is_signed")) or si.get("show") == 0
+
+        if is_signed:
+            result["ok"] += 1
+            reward = today.get("reward") or ""
+            self.log("success",
+                     f"今日签到完成 · {signed_days}" + (f" · 今日奖励 {reward}" if reward else ""))
+        else:
+            result["fail"] += 1
+            self.log("warn", "今天似乎还没签上，明天跑的时候再确认（页面加载会自动签到）")
+
+        # 3. 关注任务（可选）：H5 关注推荐列表里的博主会真实计入任务进度
+        tasks = self._mtask_json(
+            f"https://m.weibo.cn/c/checkin/getTask?v3revision=1&st={st}", cookie_str)
+        if self.cfg.get("mtask_follow_enable"):
+            if self._do_follow_task(cookie_str, tasks):
+                # 关注会刷新任务进度，重新拉一次列表，完成状态交给下面的领取环节
+                sleep_between(1.0, 1.5)
+                tasks = self._mtask_json(
+                    f"https://m.weibo.cn/c/checkin/getTask?v3revision=1&st={st}", cookie_str)
+
+        # 4. 任务列表：已完成（status=2）的直接领奖励
+        claimed = 0
+        for group, items in (tasks.get("actions") or {}).items():
+            for it in items or []:
+                if it.get("status") not in (2, "2"):
+                    continue
+                tid, tname = it.get("id"), it.get("name") or it.get("ename") or "未知任务"
+                self.log("info", f"任务「{tname}」已完成，正在领奖励…")
+                d = self._mtask_json(
+                    f"https://m.weibo.cn/c/checkin/ug/score/claim"
+                    f"?action_id={tid}&is_android=0", cookie_str)
+                msg = ((d.get("data") or {}).get("msg")) or "领取成功"
+                self.log("success", f"任务「{tname}」：{msg}")
+                claimed += 1
+                sleep_between(0.8, 1.2)
+        if claimed:
+            self.log("info", f"共领取 {claimed} 个任务的奖励")
+        return is_signed
+
+    def _do_follow_task(self, cookie_str, tasks):
+        """关注推荐列表里的博主，完成「关注」任务。
+
+        验证结论：m.weibo.cn 的 H5 关注接口会真实计入任务进度；
+        但内容接口要用普通手机 UA（App 格式 UA 会被服务端判「冒充 App」返回 -100）。
+        """
+        need = 0
+        for group, items in (tasks.get("actions") or {}).items():
+            for it in items or []:
+                if it.get("ename") == "follow" and it.get("status") in (0, "0", 1, "1"):
+                    need = int(it.get("num") or 0) - int(it.get("num_done") or 0)
+        if need <= 0:
+            return True
+        ua_m = ("Mozilla/5.0 (iPhone; CPU iPhone OS 18_2_1 like Mac OS X) "
+                "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Mobile/15E148 Safari/604.1")
+        m_hdr = {"Cookie": cookie_str, "User-Agent": ua_m, "Referer": "https://m.weibo.cn/",
+                 "X-Requested-With": "XMLHttpRequest",
+                 "Accept": "application/json, text/plain, */*"}
+        status, _, text = request("https://m.weibo.cn/api/config", headers=m_hdr, timeout=30)
+        st = ""
+        try:
+            st = (json.loads(text).get("data") or {}).get("st") or ""
+        except ValueError:
+            pass
+        if not st:
+            self.log("warn", "拿不到手机版会话参数，关注任务跳过")
+            return False
+        self.log("info", f"关注任务还需关注 {need} 人，正在关注推荐博主…")
+        followed = 0
+        for _ in range(need):
+            status, _, text = request(
+                "https://m.weibo.cn/api/container/getIndex"
+                "?containerid=231093_-_selfrecomm", headers=m_hdr, timeout=30)
+            uid = None
+            try:
+                d = json.loads(text)
+                for c in ((d.get("data") or {}).get("cards") or []):
+                    for g in (c.get("card_group") or []):
+                        u = g.get("user") or {}
+                        if u.get("id"):
+                            uid = str(u["id"])
+                            break
+                    if uid:
+                        break
+            except ValueError:
+                pass
+            if not uid:
+                self.log("warn", "推荐关注列表拿不到人，关注任务跳过")
+                break
+            status, _, text = request("https://m.weibo.cn/api/friendships/create",
+                                      method="POST", headers=m_hdr,
+                                      data=urllib.parse.urlencode({"uid": uid, "st": st}),
+                                      timeout=30)
+            try:
+                ok = json.loads(text).get("ok")
+            except ValueError:
+                ok = None
+            if ok == 1:
+                followed += 1
+                self.log("success", f"已关注推荐博主（UID {uid}）")
+                sleep_between(1.2, 2.0)
+            else:
+                self.log("warn", f"关注失败：{text[:80]}")
+                break
+        return followed > 0
 
     def _do_repost(self, cookie, result):
         count = max(1, int(self.cfg.get("repost_count") or 2))
