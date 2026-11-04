@@ -12,6 +12,15 @@ html{--task-accent:#0091ff;--task-accent-fg:#fff}
 html[data-theme="dark"]{--task-accent:#38bdf8;--task-accent-fg:#062a36}
 html[data-theme="ocean"]{--task-accent:#22d3ee;--task-accent-fg:#062a36}
 html[data-theme="purple"]{--task-accent:#c084fc;--task-accent-fg:#1b1229}
+.task-pick{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--mp-border);font-size:13px;cursor:pointer}
+.task-pick:last-child{border-bottom:0}
+.task-pick input{width:16px;height:16px;flex:none}
+.task-pick .tp-name{flex:1;min-width:0}
+.task-pick .tp-meta{color:var(--mp-muted);font-size:12px;white-space:nowrap}
+.task-pick.disabled{opacity:.55;cursor:default}
+/* 设置页很长：保存/执行按钮固定在顶部，勾选后不用再滚回页头 */
+header{position:sticky;top:0;z-index:30;background:var(--mp-bg);padding:10px 0;margin:-10px 0 18px;
+  box-shadow:0 8px 18px -16px rgba(0,0,0,.6)}
 </style>
 </head>
 <body>
@@ -131,6 +140,18 @@ html[data-theme="purple"]{--task-accent:#c084fc;--task-accent-fg:#1b1229}
         <label class="switch"><input type="checkbox" id="medal_enable"><span></span></label>
       </div>
       <div class="field">
+        <label>勋章页任务</label>
+        <input type="text" class="grow" value="具体做哪些任务在下方勾选" disabled
+               style="border:0;background:transparent;color:#94a3b8;padding-left:0">
+        <label class="switch"><input type="checkbox" id="medal_tasks_enable"><span></span></label>
+      </div>
+      <div class="field">
+        <label>全自动非付费</label>
+        <input type="text" class="grow" value="自动尝试全部非购买/付费任务" disabled
+               style="border:0;background:transparent;color:#94a3b8;padding-left:0">
+        <label class="switch"><input type="checkbox" id="auto_all_nonpaid"><span></span></label>
+      </div>
+      <div class="field">
         <label>守护歌手 id</label>
         <input type="text" class="grow" id="medal_singer_id" placeholder="188254 = 封茗囧菌">
       </div>
@@ -138,6 +159,22 @@ html[data-theme="purple"]{--task-accent:#c084fc;--task-accent-fg:#1b1229}
         官方每天能领的次数会变。返回「次数已用光」就会自动停，不会硬刷。
         追加守护走的是官方接口（App 里要求先看视频），一天只有限次，用完会跳过。
       </div>
+    </div>
+
+    <div class="card">
+      <div class="panel-head">
+        <span class="t">勋章任务（自动识别）</span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span id="taskSaveState" style="font-size:12px;color:#94a3b8"></span>
+          <button class="btn-ghost btn-sm" id="btnTaskTryAll">尝试全部（不含购买）</button>
+          <button class="btn-ghost btn-sm" id="btnTaskAuto">只选可自动</button>
+          <button class="btn-ghost btn-sm" id="btnTaskNone">清空</button>
+          <button class="btn-ghost btn-sm" id="btnLoadTasks">刷新任务列表</button>
+        </div>
+      </div>
+      <div class="note">默认「全自动非付费」会完成所有非购买任务（看视频、播放、答题、刮刮乐、下载等走真实上报接口）；
+        购买、付费、金币兑换类永不自动执行。接口变更时会跳过并记录日志，不影响其他任务。</div>
+      <div id="taskPick"><div class="empty">先登录并刷新状态，拿到任务列表后在这里勾选</div></div>
     </div>
 
     <div class="card">
@@ -219,7 +256,11 @@ if (EMBED) document.body.classList.add('embed');
 
 const TEXT_IDS = ['cookie', 'userid', 'token', 'medal_singer_id'];
 const NUM_IDS = ['ad_times', 'ad_gap', 'gap_min', 'gap_max'];
-const BOOL_IDS = ['listen_enable', 'ad_enable', 'medal_enable'];
+const BOOL_IDS = ['listen_enable', 'ad_enable', 'medal_enable', 'medal_tasks_enable', 'auto_all_nonpaid'];
+let taskPickLoaded = false;
+let taskPickDirty = false;
+let selectionSaveTimer = null;
+let saveChain = Promise.resolve();
 
 let state = {config: {}};
 let since = 0, polling = null, running = false;
@@ -321,8 +362,9 @@ function renderMedal(s){
     box.innerHTML = '<div class="empty">点「刷新状态」拉取勋章任务</div>';
     return;
   }
-  stat.textContent = `Lv${m.level} · 守护值 ${m.integral}`;
-  const rows = m.tasks.filter(t => t.need < 1000).slice(0, 8).map(t => {
+  stat.textContent = `Lv${m.level} · 守护值 ${m.integral}`
+    + (m.task_total ? ` · 任务 ${m.task_done || 0}/${m.task_total}` : '');
+  const rows = m.tasks.map(t => {
     const full = t.finish >= t.need;
     const pct = Math.min(100, Math.round(t.finish / Math.max(1, t.need) * 100));
     return `
@@ -332,7 +374,7 @@ function renderMedal(s){
         <div class="m-desc">守护值 +${t.integral} · ${t.finish}/${t.need}</div>
         <div class="bar"><i style="width:${pct}%"></i></div>
       </div>
-      <span class="badge ${full ? 'ok' : 'wait'}">${full ? '已完成' : `剩 ${t.need - t.finish}`}</span>
+      <span class="badge ${full ? 'ok' : 'wait'}">${full ? '已完成' : `剩 ${(t.need - t.finish).toLocaleString()}`}</span>
     </div>`;
   }).join('');
   box.innerHTML = `
@@ -341,12 +383,79 @@ function renderMedal(s){
     ${rows}`;
 }
 
+function renderTaskPick(tasks){
+  const box = $('taskPick');
+  if (!box) return;
+  const list = (tasks || []).filter(t => t.task_id && t.task_id !== 'sign_in');
+  if (!list.length){
+    box.innerHTML = '<div class="empty">先登录并刷新状态，拿到任务列表后在这里勾选</div>';
+    taskPickLoaded = false;
+    return;
+  }
+  const autoAll = $('auto_all_nonpaid')
+    ? $('auto_all_nonpaid').checked
+    : (state.config || {}).auto_all_nonpaid !== false;
+  const saved = (state.config || {}).medal_task_ids;
+  const selected = Array.isArray(saved)
+    ? new Set(saved)
+    : new Set(list.filter(t => !isPaidTask(t)).map(t => t.task_id));
+  box.innerHTML = list.map(t => {
+    const paid = isPaidTask(t);
+    const checked = autoAll ? !paid : selected.has(t.task_id);
+    const meta = autoAll
+      ? (paid ? '付费，不自动' : '自动尝试')
+      : `${t.finish}/${t.need} · ${paid ? '付费' : '可自动'}`;
+    return `<label class="task-pick${autoAll ? ' disabled' : ''}">
+      <input type="checkbox" value="${esc(t.task_id)}" ${checked ? 'checked' : ''} ${autoAll ? 'disabled' : ''}>
+      <span class="tp-name">${esc(t.name || t.task_id)}</span>
+      <span class="tp-meta">${esc(meta)}</span>
+    </label>`;
+  }).join('');
+  taskPickLoaded = true;
+  ['btnTaskTryAll', 'btnTaskAuto', 'btnTaskNone'].forEach(id => {
+    const b = $(id);
+    if (b) b.disabled = autoAll;
+  });
+  box.onchange = () => {
+    taskPickDirty = true;
+    setSaveState('有改动，正在保存…', '#f59e0b');
+    scheduleSelectionSave();
+  };
+}
+
+function isPaidTask(t){
+  const id = String((t && t.task_id) || '');
+  const name = String((t && t.name) || '');
+  return /(purchase|pay_|buy_|coin_|battle_pass|svip|vip)/i.test(id)
+    || /(购买|付费|开通|金币|超会|会员)/.test(name);
+}
+
+function setSaveState(text, color){
+  const el = $('taskSaveState');
+  if (!el) return;
+  el.textContent = text || '';
+  el.style.color = color || '#94a3b8';
+}
+
+function scheduleSelectionSave(){
+  clearTimeout(selectionSaveTimer);
+  selectionSaveTimer = setTimeout(() => {
+    saveChain = saveChain.then(() => saveAll(true));
+  }, 400);
+}
+
 function applyState(s){
   if (!s) return;
   renderHero(s);
   renderMissions(s);
   renderMedal(s);
+  renderTaskPick((s.medal || {}).tasks || []);
   renderTeam(s);
+  if ((state.config || {}).auto_all_nonpaid !== false){
+    setSaveState('自动执行全部非付费任务', '#22c55e');
+  } else if (!taskPickDirty && Array.isArray((state.config || {}).medal_task_ids)){
+    setSaveState('勾选已保存', '#22c55e');
+  }
 }
 
 function collectForm(){
@@ -355,10 +464,15 @@ function collectForm(){
   NUM_IDS.forEach(k => { if ($(k)) out[k] = parseFloat($(k).value) || 0; });
   BOOL_IDS.forEach(k => { if ($(k)) out[k] = $(k).checked; });
   if ($('platform')) out.platform = $('platform').value;
+  if (taskPickLoaded){
+    out.medal_task_ids = [...document.querySelectorAll('#taskPick input[type=checkbox]')]
+      .filter(b => b.checked).map(b => b.value);
+  }
   return out;
 }
 
 async function saveAll(silent){
+  clearTimeout(selectionSaveTimer);
   const body = collectForm();
   try{
     const r = await fetch(API + '/save', {
@@ -368,9 +482,12 @@ async function saveAll(silent){
     const d = await r.json();
     if (!d.ok) throw new Error(d.error || '保存失败');
     state.config = Object.assign(state.config || {}, body);
+    taskPickDirty = false;
+    setSaveState('已保存 ' + new Date().toLocaleTimeString(), '#22c55e');
     if (!silent) toast('已保存', 'ok');
     return true;
   }catch(e){
+    setSaveState('保存失败，请确认程序在运行', '#ef4444');
     toast(e.message || '保存失败', 'err');
     return false;
   }
@@ -631,8 +748,34 @@ $('btnQr').onclick = openQr;
 $('qrAgain').onclick = openQr;
 $('qrClose').onclick = closeQr;
 $('qrModal').onclick = e => { if (e.target.id === 'qrModal') closeQr(); };
+function setTaskPicks(ids){
+  document.querySelectorAll('#taskPick input[type=checkbox]').forEach(b => {
+    b.checked = ids === null ? true : ids.includes(b.value);
+  });
+  taskPickDirty = true;
+  setSaveState('有改动，正在保存…', '#f59e0b');
+  scheduleSelectionSave();
+}
+function setTryAllPicks(){
+  // 购买/付费/金币兑换类不自动勾选，避免误花钱
+  const blocked = /purchase|pay_|buy_|coin_|battle_pass|svip|vip/i;
+  document.querySelectorAll('#taskPick input[type=checkbox]').forEach(b => {
+    b.checked = !blocked.test(b.value);
+  });
+  taskPickDirty = true;
+  setSaveState('有改动，正在保存…', '#f59e0b');
+  scheduleSelectionSave();
+}
+$('btnTaskTryAll').onclick = setTryAllPicks;
+$('btnTaskAuto').onclick = setTryAllPicks;
+$('auto_all_nonpaid').addEventListener('change', () => {
+  renderTaskPick(((state.cached && state.cached.medal) || {}).tasks || []);
+  scheduleSelectionSave();
+});
+$('btnTaskNone').onclick = () => setTaskPicks([]);
 $('btnSave').onclick = () => saveAll(false);
 $('btnRefresh').onclick = refresh;
+$('btnLoadTasks').onclick = refresh;
 $('btnRun').onclick = run;
 
 (async () => {

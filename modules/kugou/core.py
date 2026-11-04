@@ -34,7 +34,7 @@ from cryptography.hazmat.primitives.serialization import load_pem_public_key
 
 from app.paths import DATA_ROOT
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 
 HOME = DATA_ROOT / "kugou"
 HOME.mkdir(parents=True, exist_ok=True)
@@ -104,6 +104,9 @@ DEFAULT_CONFIG = {
     "gap_min": 2.0,
     "gap_max": 4.0,
     "medal_enable": True,          # 乐迷勋章 · 每日守护
+    "medal_tasks_enable": True,    # 勋章页任务（分享/日历/点赞）
+    "medal_task_ids": None,        # 手动勾选要执行的勋章任务
+    "auto_all_nonpaid": True,      # 自动尝试全部非付费任务（购买/付费/金币兑换除外）
     "medal_singer_id": "188254",  # 守护的歌手 id（默认封茗囧菌）
 }
 
@@ -435,7 +438,7 @@ class MedalClient:
         self.appid = MEDAL_APPID_STD
 
     def _call(self, path: str, params: dict | None = None,
-              data: dict | None = None) -> dict:
+              data: dict | None = None, host: str | None = None) -> dict:
         now_ms = int(time.time() * 1000)
         p = {
             "appid": self.appid, "clientver": MEDAL_CLIENTVER,
@@ -448,7 +451,8 @@ class MedalClient:
         if data is not None:
             body = json.dumps(data, separators=(",", ":"), ensure_ascii=False)
         p["signature"] = sign_web(p, body)
-        url = MEDAL_HOST + path + "?" + urllib.parse.urlencode(p)
+        base = (host or MEDAL_HOST).rstrip("/")
+        url = base + "/" + path.lstrip("/") + "?" + urllib.parse.urlencode(p)
         req = urllib.request.Request(
             url, data=body.encode("utf-8") if data is not None else None,
             method="POST" if data is not None else "GET",
@@ -462,8 +466,10 @@ class MedalClient:
                 raw = resp.read()
         except urllib.error.HTTPError as exc:
             raw = exc.read()
+            if exc.code == 404:
+                raise KugouError(f"该任务没有可用接口（HTTP 404）：{path}", 404)
             if not raw:
-                raise KugouError(f"勋章接口返回 HTTP {exc.code}")
+                raise KugouError(f"勋章接口返回 HTTP {exc.code}", exc.code)
         except Exception as exc:  # noqa: BLE001
             raise KugouError(f"勋章接口请求失败：{exc}")
         try:
@@ -494,12 +500,45 @@ class MedalClient:
         return self._call("/v1/task/finish/sign_in_additional",
                           data={"singer_id": int(singer_id), "auth_sign": auth})
 
+    # ---- 勋章页任务
+    def task_finish(self, task_type: str, data: dict) -> dict:
+        return self._call("/v1/task/finish/" + task_type, data=data)
+
+    def fans_rank(self, singer_id: int) -> dict:
+        return self._call("/v1/task/fans_integral_rank", params={
+            "singer_id": int(singer_id), "classify_id": int(singer_id),
+            "type": "singer_energy", "page": 1, "page_size": 20})
+
+    def like_fan(self, singer_id: int, liked_user_id: int, user_id: int) -> dict:
+        return self._call("/v1/task/finish/fans_like", data={
+            "singer_id": int(singer_id), "liked_user_id": int(liked_user_id),
+            "user_id": int(user_id), "like": 1})
+
+    def outside_finish(self, task_id: str, singer_id: int,
+                       event_id: str = "") -> dict:
+        """通用任务上报（H5/App 外部动作）。实测每次 +1 次完成次数。"""
+        body = {
+            "task_id": str(task_id),
+            "singer_id": int(singer_id),
+            "classify_id": int(singer_id),
+            "event_id": event_id or f"{int(time.time() * 1000)}_{task_id}_{self.userid}",
+        }
+        return self._call("/v2/task/outside_finish", data=body)
+
 
 def medal_of(payload: dict) -> dict:
     """progress_list 的返回压成 UI 好用的形状。"""
     data = (payload or {}).get("data") or {}
     uls = data.get("user_level_status") or {}
     tasks = ((data.get("medal_task_data") or {}).get("task_list")) or []
+    rows = [
+        {"name": _str(t.get("name")), "task_id": _str(t.get("task_id")),
+         "finish": _int(t.get("finish_times")) or 0,
+         "need": _int(t.get("times")) or 1,
+         "integral": _int(t.get("integral")) or 0}
+        for t in tasks
+    ]
+    done = sum(1 for t in rows if t["finish"] >= t["need"])
     return {
         "level": _int(uls.get("level")) or 0,
         "integral": _int(uls.get("cur_integral")) or 0,
@@ -507,13 +546,9 @@ def medal_of(payload: dict) -> dict:
         "signed": _int(uls.get("has_singer_sign")) == 1,
         "follow_day": _int(uls.get("follow_day")) or 0,
         "rank": _str(uls.get("rank") or "—"),
-        "tasks": [
-            {"name": _str(t.get("name")), "task_id": _str(t.get("task_id")),
-             "finish": _int(t.get("finish_times")) or 0,
-             "need": _int(t.get("times")) or 1,
-             "integral": _int(t.get("integral")) or 0}
-            for t in tasks
-        ],
+        "task_done": done,
+        "task_total": len(rows),
+        "tasks": rows,
     }
 
 
@@ -612,13 +647,31 @@ class Task:
                 self.summary = result
                 self.running = False
                 self.done = True
-            self.log("finish", "全部完成")
+            self.log("finish", "已结束（有错误）" if result.get("error") else "已结束")
 
 
 TASK = Task()
 
 
 # ---------------------------------------------------------------- 主流程
+
+AUTO_MEDAL_TASKS = ("fans_medal_share", "calendar_reminder", "fans_like")
+# 这三个走 /v1/task/finish/*；其余非付费任务走 /v2/task/outside_finish
+TASK_FINISH_TYPES = ("fans_medal_share", "calendar_reminder")
+
+# 涉及真实花钱/货币兑换的任务，永远不自动执行
+PAID_TASK_ID_MARKERS = ("purchase", "pay_", "buy_", "coin_",
+                        "battle_pass", "svip", "vip")
+PAID_TASK_NAME_MARKERS = ("购买", "付费", "开通", "金币", "超会", "会员")
+
+
+def is_paid_task(task: dict) -> bool:
+    """购买/付费/金币兑换类任务 → 不自动勾选、不自动执行。"""
+    tid = str(task.get("task_id") or "").lower()
+    name = str(task.get("name") or "")
+    return (any(m in tid for m in PAID_TASK_ID_MARKERS)
+            or any(m in name for m in PAID_TASK_NAME_MARKERS))
+
 
 class KugouDaily:
     def __init__(self, cfg, log):
@@ -649,6 +702,169 @@ class KugouDaily:
             return medal_of(payload)
         except KugouError as exc:
             return {"error": str(exc)}
+
+    def _selected_medal_tasks(self, tasks: dict | None = None) -> set[str] | None:
+        if self.cfg.get("auto_all_nonpaid", True) and tasks is not None:
+            return {tid for tid, t in tasks.items()
+                    if tid != "sign_in" and not is_paid_task(t)}
+        raw = self.cfg.get("medal_task_ids")
+        if not isinstance(raw, (list, tuple, set)):
+            return set(AUTO_MEDAL_TASKS)
+        return {str(x) for x in raw if str(x or "").strip()}
+
+    def _run_medal_tasks(self, mc, sid: int) -> tuple[dict, int, int, int]:
+        """遍历账号当前的全部勋章任务，只执行设置里勾选了的那几项。"""
+        info = self._fetch_medal()
+        if info.get("error"):
+            raise KugouError(info["error"])
+        tasks = {t["task_id"]: t for t in info.get("tasks", [])}
+        auto_all = bool(self.cfg.get("auto_all_nonpaid", True))
+        selected = self._selected_medal_tasks(tasks)
+        done = fail = skipped = 0
+        if auto_all:
+            paid = [t for tid, t in tasks.items()
+                    if tid != "sign_in" and is_paid_task(t)]
+            self.log("info", "勋章任务：自动尝试全部非付费任务"
+                             f"（{len(selected)} 项；购买/付费/金币兑换 {len(paid)} 项已排除）")
+
+        missing = sorted(t for t in selected
+                         if t != "sign_in" and t not in tasks)
+        if missing:
+            self.log("info", "已选任务不在当前列表（可能已下线/换期）："
+                     + "、".join(missing[:6])
+                     + (" 等" if len(missing) > 6 else ""))
+        if not selected:
+            self.log("info", "勋章页任务：没有可自动尝试的非付费任务，跳过"
+                     if auto_all else "勋章页任务：没有勾选任何任务，跳过")
+            return info, 0, 0, skipped
+        selected_pending = [t for tid, t in tasks.items()
+                            if tid != "sign_in" and tid in selected
+                            and (t.get("finish") or 0) < (t.get("need") or 1)]
+        if not selected_pending:
+            self.log("info", "勋章页任务：已选任务今天都已完成，无需重复执行")
+            unselected = [x for tid, x in tasks.items()
+                          if tid != "sign_in"
+                          and x["finish"] < x["need"] and tid not in selected]
+            skipped += len(unselected)
+            return info, 0, 0, skipped
+
+        for tid, t in tasks.items():
+            if tid == "sign_in":
+                continue
+            if tid not in selected:
+                continue
+            need = max(0, (t.get("need") or 1) - (t.get("finish") or 0))
+            if need <= 0:
+                continue
+            label = t.get("name") or tid
+            if tid == "fans_like":
+                try:
+                    rank = mc.fans_rank(int(sid))
+                    users = (rank.get("data") or {}).get("list") or []
+                    uid = _int(self.cfg.get("userid")) or 0
+                    got = 0
+                    for u in users:
+                        if got >= need:
+                            break
+                        if u.get("liked_today"):
+                            continue
+                        r = mc.like_fan(int(sid), u.get("user_id"), uid)
+                        if _int(r.get("errcode")) == 0:
+                            got += 1
+                            self.log("success", f"点赞乐迷 {u.get('nickname') or u.get('user_id')}：{got}/{need}")
+                        else:
+                            self.log("warn", f"点赞乐迷失败：{r.get('errmsg')}（errcode {r.get('errcode')}）")
+                            fail += 1
+                            break
+                        time.sleep(random.uniform(1.2, 2.0))
+                    done += got
+                    if got < need:
+                        skipped += 1
+                        self.log("info", f"{label}还差 {need - got} 次，可用乐迷不足或接口限制")
+                except KugouError as exc:
+                    if self._log_task_error(label, exc):
+                        skipped += 1
+                    else:
+                        fail += 1
+            elif tid in TASK_FINISH_TYPES:
+                try:
+                    r = mc.task_finish(tid, {"singer_id": int(sid)})
+                except KugouError as exc:
+                    if self._log_task_error(label, exc):
+                        skipped += 1
+                    else:
+                        fail += 1
+                    continue
+                if _int(r.get("errcode")) == 0:
+                    self.log("success", f"{label}：已完成")
+                    done += 1
+                elif _int(r.get("errcode")) == 20010:
+                    self.log("info", f"{label}：需要在酷狗 App 内完成，跳过")
+                    skipped += 1
+                else:
+                    self.log("warn", f"{label}：{r.get('errmsg')}（errcode {r.get('errcode')}）")
+                    fail += 1
+                time.sleep(random.uniform(1.2, 2.0))
+            else:
+                # 其余任务统一走 H5/App 外部动作上报接口，每调一次完成次数 +1
+                got = 0
+                try:
+                    for n in range(need):
+                        r = mc.outside_finish(
+                            tid, int(sid),
+                            event_id=f"{int(time.time() * 1000)}_{tid}_"
+                                     f"{self.cfg.get('userid', '')}_{n}")
+                        if (_int(r.get("errcode")) == 0
+                                and _int(r.get("status")) == 1):
+                            got += 1
+                        else:
+                            self.log("warn",
+                                     f"{label}：{r.get('errmsg') or '上报失败'}"
+                                     f"（errcode {r.get('errcode')}）")
+                            break
+                        if n < need - 1:
+                            time.sleep(random.uniform(0.5, 1.0))
+                except KugouError as exc:
+                    if self._log_task_error(label, exc):
+                        skipped += 1
+                    else:
+                        fail += 1
+                    continue
+                if got >= need:
+                    self.log("success", f"{label}：已完成 {got}/{need}")
+                    done += 1
+                elif got:
+                    self.log("info", f"{label}：完成 {got}/{need}，剩余下次继续")
+                    skipped += 1
+                else:
+                    self.log("warn", f"{label}：本次没有完成")
+                    fail += 1
+
+        after = self._fetch_medal()
+        if after.get("error"):
+            return info, done, fail, skipped
+        after_tasks = {x["task_id"]: x for x in after.get("tasks", [])}
+        selected_left = [x.get("name") or tid for tid, x in after_tasks.items()
+                         if tid != "sign_in" and x["finish"] < x["need"] and tid in selected]
+        unselected = [tid for tid, x in after_tasks.items()
+                      if tid != "sign_in" and x["finish"] < x["need"] and tid not in selected]
+        skipped += len(unselected)
+        self.log("info",
+                 f"勋章任务：{after.get('task_done')}/{after.get('task_total')} 已完成"
+                 f"（本次执行 {done} 项，已选未完成 {len(selected_left)} 项，"
+                 f"未勾选/付费排除 {len(unselected)} 项）")
+        if selected_left:
+            self.log("info", "已选任务未完成：" + "、".join(selected_left[:8])
+                     + (" 等" if len(selected_left) > 8 else ""))
+        return after, done, fail, skipped
+
+    def _log_task_error(self, label: str, exc: KugouError) -> bool:
+        """任务接口报错：404 = 平台没有该任务接口（跳过），其余算失败。"""
+        if getattr(exc, "code", None) == 404:
+            self.log("info", f"{label}：平台没有对应接口，跳过")
+            return True
+        self.log("warn", f"{label}：{exc}")
+        return False
 
     def _sleep(self):
         a = float(self.cfg.get("gap_min") or 2)
@@ -782,6 +998,7 @@ class KugouDaily:
                     self.log("error", f"乐迷勋章读不到状态：{info['error']}")
                     fail += 1
                 else:
+                    medal = info
                     tasks = {t["task_id"]: t for t in info.get("tasks", [])}
                     sign = tasks.get("sign_in") or {}
                     if sign.get("finish", 0) >= (sign.get("need") or 1):
@@ -816,11 +1033,19 @@ class KugouDaily:
                     else:
                         # 30001 = 当天追加次数已用完，不算失败
                         if _int(r2.get("errcode")) == 30001:
-                            self.log("info", f"追加守护：{r2.get('errmsg')}")
+                            self.log("info", "追加守护：今天已经追加过了，跳过")
                             skipped += 1
                         else:
                             self.log("warn", f"追加守护：{r2.get('errmsg')}（errcode {r2.get('errcode')}）")
                             fail += 1
+                    if self.cfg.get("medal_tasks_enable", True):
+                        after_medal, td, tf, ts = self._run_medal_tasks(mc, sid)
+                        medal = after_medal
+                        done += td
+                        fail += tf
+                        skipped += ts
+                    else:
+                        self.log("info", "勋章页任务关着，跳过")
             except KugouError as exc:
                 self.log("error", f"乐迷勋章失败：{exc}")
                 fail += 1
@@ -839,7 +1064,8 @@ class KugouDaily:
         except KugouError:
             pass
         save_state(after)
-        self.log("info", f"完成 {done} · 失败 {fail} · 跳过 {skipped}")
+        self.log("info", f"完成 {done} · 失败 {fail} · 跳过 {skipped}"
+                         "（跳过含今天已完成、次数用尽和未勾选的任务）")
         return {"ok": done, "fail": fail, "skipped": skipped}
 
     def _save_prog(self, prog: dict):
