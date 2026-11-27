@@ -40,8 +40,8 @@ SHARED_BROWSER_CDP_PORT = 9341
 # ACCOUNTS_DIR/index.json.
 ACCOUNTS_DIR = os.path.join(DATA_DIR, "accounts")
 
-# Frontend build output served by the backend
-FRONTEND_DIST = os.path.join(REPO_ROOT, "frontend", "dist")
+# Optional archived browser compatibility build, not used by the native desktop.
+FRONTEND_DIST = os.path.abspath(os.path.join(REPO_ROOT, "..", "..", "legacy", "web_ui", "douyin", "dist"))
 
 _ACTIVE_CACHE = {"ts": 0.0, "id": None}
 _ACTIVE_CACHE_TTL = 1.0

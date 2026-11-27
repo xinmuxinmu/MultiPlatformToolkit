@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>多平台工具</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #f2f4f2; color: #111613; overflow: hidden;
+  }
+  .app-shell { display: flex; height: 100vh; }
+
+  /* ── 左侧软件栏（近黑 + 绿色强调，取自 wb2go 面板） ── */
+  .sidebar {
+    width: 228px; flex: none; display: flex; flex-direction: column;
+    background: #0e1311; border-right: 2px solid #16a34a; padding: 18px 14px 12px;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 2px 4px 20px; }
+  .brand .dot {
+    width: 10px; height: 10px; border-radius: 2px; background: #4ade80;
+    box-shadow: 0 0 0 4px rgba(74,222,128,.12); flex: none;
+  }
+  .brand b { font-size: 15px; letter-spacing: -.2px; color: #e4ece7; }
+  .brand small {
+    display: block; font-size: 11px; color: #8fa198; font-weight: 400; margin-top: 2px;
+    font-family: ui-monospace, Consolas, monospace;
+  }
+
+  .nav { display: flex; flex-direction: column; gap: 2px; flex: 1; overflow-y: auto; }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    border: 1px solid transparent; background: none; border-radius: 6px;
+    height: 38px; padding: 0 11px; cursor: pointer; text-align: left;
+    color: #8fa198; font: 550 13px/1 inherit; position: relative; transition: .15s;
+  }
+  .nav-item:hover { background: #18211c; color: #e4ece7; }
+  .nav-item.active { background: #13301f; border-color: rgba(74,222,128,.45); color: #e4ece7; }
+  .nav-item.active::before {
+    content: ""; position: absolute; left: -11px; top: 7px; bottom: 7px;
+    width: 3px; background: #4ade80; border-radius: 0 2px 2px 0;
+  }
+  .nav-item .ico {
+    width: 24px; height: 24px; flex: none; border-radius: 6px; display: grid;
+    place-items: center; font-size: 14px; background: rgba(255,255,255,.05);
+  }
+  .nav-item.active .ico { background: rgba(74,222,128,.12); }
+  .nav-item .txt { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .nav-item .txt b { font-size: 13px; font-weight: 600; }
+  .nav-item .txt small {
+    font-size: 11px; color: #7f938a; font-weight: 400;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .nav-item.active .txt small { color: #9fc8ae; }
+
+  .side-foot {
+    margin-top: 12px; padding-top: 12px; border-top: 1px solid #1a2620;
+    font-size: 11px; color: #7f938a; line-height: 1.7;
+    font-family: ui-monospace, Consolas, monospace;
+  }
+  .side-foot .mono { color: #6c7d74; }
+  .headless-switch {
+    display: flex; align-items: center; gap: 7px; font-size: 12px;
+    color: #9aaca2; cursor: pointer; user-select: none; margin-bottom: 3px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  .headless-switch input { accent-color: #22c55e; }
+  .headless-hint { font-size: 10.5px; color: #6c7d74; line-height: 1.5; margin-bottom: 8px; }
+
+  /* ── 右侧应用区 ── */
+  .stage { flex: 1; min-width: 0; position: relative; background: #f2f4f2; }
+  .app-frame {
+    position: absolute; inset: 0; width: 100%; height: 100%; border: 0;
+    background: #f2f4f2; display: none;
+  }
+  .app-frame.active { display: block; }
+
+  /* ── 外观偏好（主题 / 语言 / 无头） ── */
+  .prefs { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  .theme-dots { display: flex; gap: 6px; }
+  .theme-dots button {
+    width: 14px; height: 14px; border-radius: 3px; border: 1px solid #33433a;
+    cursor: pointer; padding: 0; flex: none;
+  }
+  .theme-dots button[data-theme="dark"] { background: #090c0b; }
+  .theme-dots button[data-theme="light"] { background: #f2f4f2; }
+  .theme-dots button.active { box-shadow: 0 0 0 2px #0e1311, 0 0 0 3px #4ade80; }
+  .lang-switch { display: flex; gap: 2px; background: #151c18; border: 1px solid #1a2620; padding: 2px; border-radius: 6px; }
+  .lang-switch button {
+    border: 0; background: transparent; color: #8fa198; font: 600 10.5px/1 inherit;
+    padding: 3px 6px; border-radius: 4px; cursor: pointer;
+  }
+  .lang-switch button.active { background: #13301f; color: #4ade80; box-shadow: none; }
+
+  /* 双主题：侧栏两种主题都保持近黑，只有内容区切换 */
+  html[data-theme="dark"] body { background: #090c0b; color: #e3ece6; }
+  html[data-theme="dark"] .stage { background: #090c0b; }
+  html[data-theme="dark"] .app-frame { background: #090c0b; }
+  html[data-theme="dark"] .theme-dots button.active { box-shadow: 0 0 0 2px #0e1311, 0 0 0 3px #4ade80; }
+
+  @media (max-width: 820px) {
+    .sidebar { width: 100%; height: auto; flex-direction: row; align-items: center; padding: 8px 10px; gap: 8px; border-right: 0; border-bottom: 2px solid #16a34a; }
+    .brand { display: none; }
+    .nav { flex-direction: row; flex: 1; overflow-x: auto; gap: 4px; }
+    .nav-item { width: auto; flex: none; padding: 7px 9px; height: 34px; }
+    .nav-item .txt small { display: none; }
+    .nav-item .ico { width: 22px; height: 22px; font-size: 13px; }
+    .side-foot { display: none; }
+    .app-shell { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="dot"></span>
+      <div><b data-i18n="brandName">多平台工具</b><small data-i18n="brandSub">聊天记录 · 签到 · 火花</small></div>
+    </div>
+    <nav class="nav" id="nav">
+      <button class="nav-item" type="button" data-app="douyin">
+        <span class="ico">🎵</span>
+        <span class="txt"><b data-i18n="appDouyin">抖音</b><small data-i18n="appDouyinSub">聊天记录 · 火花</small></span>
+      </button>
+      <button class="nav-item" type="button" data-app="weibo">
+        <span class="ico">💬</span>
+        <span class="txt"><b data-i18n="appWeibo">微博聊天记录</b><small data-i18n="appWeiboSub">私信导出 · 离线浏览</small></span>
+      </button>
+      <button class="nav-item" type="button" data-app="bili">
+        <span class="ico">📺</span>
+        <span class="txt"><b data-i18n="appBili">B站聊天记录</b><small data-i18n="appBiliSub">私信导出 · 离线浏览</small></span>
+      </button>
+      <button class="nav-item" type="button" data-app="taobao">
+        <span class="ico">🛒</span>
+        <span class="txt"><b data-i18n="appTaobao">淘宝旺旺记录</b><small data-i18n="appTaobaoSub">买家侧聊天导出</small></span>
+      </button>
+      <button class="nav-item" type="button" data-app="signin">
+        <span class="ico">✅</span>
+        <span class="txt"><b data-i18n="appSignin">一键签到</b><small data-i18n="appSigninSub">微博 / 贴吧 / 吾爱 / StarSky / 酷狗 / QQ</small></span>
+      </button>
+      <button class="nav-item" type="button" data-app="ai">
+        <span class="ico">🤖</span>
+        <span class="txt"><b data-i18n="appAi">AI 工具</b><small data-i18n="appAiSub">Trae / Qoder / WorkBuddy / 豆包</small></span>
+      </button>
+    </nav>
+    <div class="side-foot">
+      <div class="prefs">
+        <div class="theme-dots" id="themeDots" aria-label="主题">
+          <button type="button" data-theme="dark" title="深色 / Dark"></button>
+          <button type="button" data-theme="light" title="浅色 / Light"></button>
+        </div>
+        <div class="lang-switch" id="langSwitch" aria-label="语言">
+          <button type="button" data-lang="zh">中</button>
+          <button type="button" data-lang="en">EN</button>
+        </div>
+      </div>
+      <label class="headless-switch" title="导出/火花初始化使用无头浏览器；扫码登录仍会弹窗">
+        <input type="checkbox" id="headlessToggle"> <span data-i18n="headless">无头模式</span>
+      </label>
+      <div class="headless-hint" id="headlessHint" data-i18n="headlessHint">导出/初始化不弹浏览器窗口</div>
+      <span data-i18n="localRun">全部在本机运行</span><br>
+      <span class="mono" id="host">127.0.0.1:18000</span>
+    </div>
+  </aside>
+
+  <main class="stage" id="stage"></main>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var APPS = {
+    douyin: { name: '抖音', url: '/douyin?embed=1' },
+    weibo:  { name: '微博聊天记录', url: '/weibo-chat/?embed=1' },
+    bili:   { name: 'B站聊天记录', url: '/bili-chat/?embed=1' },
+    taobao: { name: '淘宝旺旺记录', url: '/taobao/?embed=1' },
+    signin: { name: '一键签到', url: '/signin/?embed=1' },
+    ai:     { name: 'AI 工具', url: '/ai-checkin/?embed=1' },
+    starsky:{ name: '一键签到', url: '/signin/?embed=1#starsky' }
+  };
+  var frames = {};
+  var current = '';
+
+  function withCache(url) {
+    var hash = '';
+    var i = url.indexOf('#');
+    if (i >= 0) { hash = url.slice(i); url = url.slice(0, i); }
+    return url + (url.indexOf('?') >= 0 ? '&' : '?') + 'v=' + Date.now() + hash;
+  }
+
+  var nav = document.getElementById('nav');
+  var stage = document.getElementById('stage');
+  document.getElementById('host').textContent = location.host;
+
+  // 内嵌页面里的“返回首页”不再跳出应用（会变成壳套壳），直接隐藏/拦截
+  function sanitizeFrame(frame) {
+    try {
+      var doc = frame.contentDocument;
+      if (!doc) return;
+      doc.querySelectorAll('a[href="/"], a[href="./"], a[href=""]').forEach(function (a) {
+        if (/返回首页|返回/.test(a.textContent || '')) a.style.display = 'none';
+      });
+      doc.addEventListener('click', function (e) {
+        var a = e.target && e.target.closest ? e.target.closest('a') : null;
+        if (!a) return;
+        var href = a.getAttribute('href') || '';
+        if (href === '/' || href === './') e.preventDefault();
+      }, true);
+    } catch (e) { /* 跨域或页面未就绪时忽略 */ }
+  }
+
+  function loadApp(key, updateHash) {
+    if (!APPS[key]) key = 'douyin';
+    current = key;
+
+    if (!frames[key]) {
+      var frame = document.createElement('iframe');
+      frame.className = 'app-frame';
+      frame.title = APPS[key].name;
+      frame.src = withCache(APPS[key].url);
+      frame.addEventListener('load', function () { sanitizeFrame(frame); broadcastTo(frame); });
+      frames[key] = frame;
+      stage.appendChild(frame);
+    }
+
+    Object.keys(frames).forEach(function (k) {
+      frames[k].classList.toggle('active', k === key);
+    });
+    var navKey = key === 'starsky' ? 'signin' : key;
+    nav.querySelectorAll('.nav-item').forEach(function (btn) {
+      btn.classList.toggle('active', btn.getAttribute('data-app') === navKey);
+    });
+    document.title = '多平台工具 · ' + APPS[key].name;
+    try { localStorage.setItem('mp-app', navKey); } catch (e) {}
+    if (updateHash) history.replaceState(null, '', '#' + key);
+  }
+
+  nav.addEventListener('click', function (e) {
+    var btn = e.target.closest('.nav-item');
+    if (!btn) return;
+    loadApp(btn.getAttribute('data-app'), true);
+  });
+
+  window.addEventListener('hashchange', function () {
+    var key = (location.hash || '').replace(/^#/, '');
+    if (key && key !== current) loadApp(key, false);
+  });
+
+  var I18N = {
+    zh: {
+      brandName: '多平台工具', brandSub: '聊天记录 · 签到 · 火花',
+      appDouyin: '抖音', appDouyinSub: '聊天记录 · 火花',
+      appWeibo: '微博聊天记录', appWeiboSub: '私信导出 · 离线浏览',
+      appBili: 'B站聊天记录', appBiliSub: '私信导出 · 离线浏览',
+      appTaobao: '淘宝旺旺记录', appTaobaoSub: '买家侧聊天导出',
+      appSignin: '一键签到', appSigninSub: '微博 / 贴吧 / 吾爱 / StarSky / 酷狗 / QQ',
+      appAi: 'AI 工具', appAiSub: 'Trae / Qoder / WorkBuddy / 豆包',
+      headless: '无头模式', headlessHint: '导出/初始化不弹浏览器窗口',
+      headlessOn: '已开启：下次导出/初始化不弹窗口',
+      headlessOff: '已关闭：下次导出/初始化显示浏览器',
+      localRun: '全部在本机运行',
+    },
+    en: {
+      brandName: 'Multi-tool', brandSub: 'Chats · Check-in · Spark',
+      appDouyin: 'Douyin', appDouyinSub: 'Chats · Spark',
+      appWeibo: 'Weibo Chats', appWeiboSub: 'Export · Offline viewer',
+      appBili: 'Bilibili Chats', appBiliSub: 'Export · Offline viewer',
+      appTaobao: 'Taobao Chats', appTaobaoSub: 'Buyer chat export',
+      appSignin: 'Daily Check-in', appSigninSub: 'Weibo / Tieba / 52pojie / StarSky / Heybox / Kugou',
+      appAi: 'AI Tools', appAiSub: 'Trae / Qoder / WorkBuddy / Doubao',
+      headless: 'Headless', headlessHint: 'Run exports/init without a browser window',
+      headlessOn: 'On: next export/init runs without a window',
+      headlessOff: 'Off: next export/init shows the browser',
+      localRun: 'Runs entirely on this machine',
+    },
+  };
+  var headlessToggle = document.getElementById('headlessToggle');
+  var headlessHint = document.getElementById('headlessHint');
+  var themeDots = document.getElementById('themeDots');
+  var langSwitch = document.getElementById('langSwitch');
+  var currentTheme = 'dark';
+  var currentLang = 'zh';
+
+  function updateHeadlessHint() {
+    headlessHint.textContent = I18N[currentLang][headlessToggle.checked ? 'headlessOn' : 'headlessOff'];
+  }
+
+  function applyTheme(theme) {
+    currentTheme = theme || 'light';
+    document.documentElement.setAttribute('data-theme', currentTheme);
+    if (themeDots) {
+      themeDots.querySelectorAll('button').forEach(function (b) {
+        b.classList.toggle('active', b.getAttribute('data-theme') === currentTheme);
+      });
+    }
+  }
+
+  function applyLang(lang) {
+    currentLang = I18N[lang] ? lang : 'zh';
+    document.documentElement.lang = currentLang === 'zh' ? 'zh-CN' : 'en';
+    document.querySelectorAll('[data-i18n]').forEach(function (el) {
+      var text = I18N[currentLang][el.getAttribute('data-i18n')];
+      if (text) el.textContent = text;
+    });
+    if (langSwitch) {
+      langSwitch.querySelectorAll('button').forEach(function (b) {
+        b.classList.toggle('active', b.getAttribute('data-lang') === currentLang);
+      });
+    }
+    updateHeadlessHint();
+  }
+
+  function broadcastTo(frame) {
+    try {
+      frame.contentWindow.postMessage(
+        { type: 'mp:settings', theme: currentTheme, lang: currentLang },
+        location.origin
+      );
+    } catch (e) { /* iframe not ready */ }
+  }
+
+  function broadcast() {
+    document.querySelectorAll('.app-frame').forEach(broadcastTo);
+  }
+
+  function savePreference(patch) {
+    fetch('/api/ui/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    }).catch(function () {});
+  }
+
+  if (themeDots) {
+    themeDots.addEventListener('click', function (e) {
+      var btn = e.target.closest('button[data-theme]');
+      if (!btn) return;
+      applyTheme(btn.getAttribute('data-theme'));
+      savePreference({ theme: currentTheme });
+      broadcast();
+    });
+  }
+  if (langSwitch) {
+    langSwitch.addEventListener('click', function (e) {
+      var btn = e.target.closest('button[data-lang]');
+      if (!btn) return;
+      applyLang(btn.getAttribute('data-lang'));
+      savePreference({ lang: currentLang });
+      broadcast();
+    });
+  }
+  headlessToggle.addEventListener('change', function () {
+    savePreference({ headless: headlessToggle.checked });
+    updateHeadlessHint();
+  });
+
+  fetch('/api/ui/settings').then(function (r) { return r.json(); }).then(function (s) {
+    applyTheme(s.theme || 'light');
+    applyLang(s.lang || 'zh');
+    headlessToggle.checked = !!s.headless;
+    updateHeadlessHint();
+  }).catch(function () { applyTheme('dark'); applyLang('zh'); });
+
+  var initial = (location.hash || '').replace(/^#/, '');
+  if (!APPS[initial]) {
+    try { initial = localStorage.getItem('mp-app') || 'douyin'; } catch (e) { initial = 'douyin'; }
+  }
+  loadApp(initial, true);
+})();
+</script>
+</body>
+</html>

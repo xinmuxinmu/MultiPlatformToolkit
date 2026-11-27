@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>一键签到</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;
+  background:var(--mp-bg);color:var(--mp-text);line-height:1.6;
+  padding:28px 20px 40px;min-height:100vh;
+}
+.wrap{max-width:1060px;margin:0 auto}
+header{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;flex-wrap:wrap;gap:12px}
+h1{font-size:22px;font-weight:650;letter-spacing:-.3px;display:flex;align-items:center;gap:10px}
+h1 .dot{width:4px;height:20px;border-radius:2px;background:var(--mp-edge)}
+.sub{font-size:13px;color:var(--mp-muted);margin-top:2px}
+.actions{display:flex;gap:10px;align-items:center}
+.back-home{font-size:13px;color:var(--mp-muted);text-decoration:none;font-weight:600;padding:9px 4px}
+.back-home:hover{color:var(--mp-accent)}
+button{font-family:inherit;font-size:14px;border:0;border-radius:var(--mp-radius);cursor:pointer;
+  padding:10px 20px;font-weight:600;transition:.18s}
+button:disabled{opacity:.5;cursor:not-allowed}
+.btn-main{background:var(--mp-accent);color:var(--mp-on-accent);box-shadow:none}
+.btn-main:hover:not(:disabled){background:var(--mp-accent-strong);transform:translateY(-1px)}
+.btn-ghost{background:var(--mp-surface);color:var(--mp-text);border:1px solid var(--mp-border-strong)}
+.btn-ghost:hover:not(:disabled){background:var(--mp-surface2);border-color:var(--mp-border-strong)}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:18px}
+@media(max-width:880px){.grid{grid-template-columns:1fr}}
+.card{background:var(--mp-surface);border-radius:var(--mp-radius);padding:18px;border:1px solid var(--mp-border);
+  box-shadow:inset 0 3px 0 var(--mp-edge);display:flex;flex-direction:column;gap:12px}
+.card-head{display:flex;align-items:center;gap:10px}
+.ico{width:34px;height:34px;border-radius:var(--mp-radius-sm);display:grid;place-items:center;font-size:17px;flex:none}
+.i-weibo{background:var(--mp-surface3)}.i-pojie{background:var(--mp-surface3)}.i-tieba{background:var(--mp-surface3)}
+.card-head .nm{font-size:15px;font-weight:650}
+.card-head .tag{font-size:11px;color:var(--mp-muted);font-weight:500}
+textarea,input[type=text],input[type=number]{
+  width:100%;border:1px solid var(--mp-border-strong);border-radius:var(--mp-radius-sm);padding:9px 11px;
+  font-size:12px;font-family:ui-monospace,Consolas,monospace;color:var(--mp-text);
+  background:var(--mp-input);outline:none;transition:.15s;line-height:1.5;
+}
+textarea{height:74px;resize:vertical}
+textarea:focus,input[type=text]:focus,input[type=number]:focus{
+  border-color:var(--mp-accent-line);background:var(--mp-surface);box-shadow:0 0 0 3px var(--mp-accent-soft)}
+textarea::placeholder,input::placeholder{color:var(--mp-faint)}
+.card-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:auto}
+.hint{font-size:12px;color:var(--mp-muted);cursor:pointer;user-select:none;border-bottom:1px dashed var(--mp-border-strong)}
+.hint:hover{color:var(--mp-accent);border-color:var(--mp-accent)}
+.btn-sign{background:var(--mp-surface3);color:var(--mp-text);font-size:13px;padding:8px 16px;border-radius:8px}
+.btn-sign:hover:not(:disabled){background:var(--mp-border-strong)}
+.btn-mini{background:var(--mp-surface);color:var(--mp-muted);font-size:12px;padding:5px 10px;border-radius:7px;
+  border:1px solid var(--mp-border-strong);font-weight:600}
+.btn-mini:hover:not(:disabled){background:var(--mp-surface2);border-color:var(--mp-border-strong);color:var(--mp-accent)}
+.btn-cfg{background:transparent;color:var(--mp-muted);font-size:15px;padding:4px 7px;border-radius:7px}
+.btn-cfg:hover{background:var(--mp-surface3);color:var(--mp-accent)}
+.state{font-size:12px;font-weight:600;padding:2px 9px;border-radius:20px;background:var(--mp-surface3);color:var(--mp-muted)}
+.state.ok{background:var(--mp-ok-soft);color:var(--mp-ok)}
+.state.err{background:var(--mp-danger-soft);color:var(--mp-danger)}
+.state.run{background:var(--mp-accent-soft);color:var(--mp-accent)}
+.panel{background:var(--mp-surface);border-radius:var(--mp-radius);border:1px solid var(--mp-border);overflow:hidden;
+  box-shadow:inset 0 3px 0 var(--mp-edge)}
+.panel-head{display:flex;align-items:center;justify-content:space-between;
+  padding:12px 18px;border-bottom:1px solid var(--mp-surface3);font-size:13px;color:var(--mp-muted);font-weight:600}
+.logs{height:360px;overflow-y:auto;padding:10px 18px 16px;
+  font-family:ui-monospace,Consolas,"Microsoft YaHei",monospace;font-size:12.5px;line-height:1.85}
+.logs::-webkit-scrollbar{width:8px}
+.logs::-webkit-scrollbar-thumb{background:var(--mp-scroll);border-radius:4px}
+.line{display:flex;gap:9px;padding:1px 0;white-space:pre-wrap;word-break:break-all}
+.line .tm{color:var(--mp-border-strong);flex:none;font-variant-numeric:tabular-nums}
+.line .tx{flex:1;min-width:0}
+.l-info .tx{color:var(--mp-muted)}
+.l-success .tx{color:var(--mp-ok)}
+.l-warn .tx{color:var(--mp-warn)}
+.l-error .tx{color:var(--mp-danger)}
+.l-head .tx{color:var(--mp-accent);font-weight:700;margin-top:8px}
+.l-done .tx{color:var(--mp-text);font-weight:650}
+.l-finish .tx{color:var(--mp-muted);margin-top:6px}
+.empty{color:var(--mp-border-strong);text-align:center;padding:60px 0;font-size:13px}
+.tip{font-size:12px;color:var(--mp-muted);margin-top:14px;text-align:center;line-height:1.9}
+.tip code{background:var(--mp-surface3);padding:1px 6px;border-radius:4px;color:var(--mp-text)}
+.modal{position:fixed;inset:0;background:rgba(15,23,42,.45);display:none;
+  align-items:center;justify-content:center;padding:20px;z-index:50}
+.modal.show{display:flex}
+.modal-box{background:var(--mp-surface);border-radius:var(--mp-radius);max-width:560px;width:100%;padding:24px;
+  box-shadow:0 20px 50px rgba(15,23,42,.25);max-height:86vh;overflow-y:auto}
+.modal-box h3{font-size:16px;margin-bottom:14px}
+.modal-box ol{margin-left:18px;font-size:13.5px;color:var(--mp-text);line-height:2}
+.modal-box b{color:var(--mp-text)}
+.note{margin-top:14px;padding:11px 13px;background:var(--mp-warn-soft);border-left:3px solid var(--mp-warn);
+  border-radius:6px;font-size:12.5px;color:var(--mp-warn);line-height:1.8}
+.note.danger{background:var(--mp-danger-soft);border-left-color:var(--mp-danger);color:var(--mp-danger)}
+.group{border:1px solid var(--mp-border);border-radius:11px;padding:14px;margin-bottom:14px;background:var(--mp-surface)}
+.group-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.group-head .t{font-size:14px;font-weight:650;color:var(--mp-text)}
+.group-head .d{font-size:11.5px;color:var(--mp-muted);margin-top:1px}
+.field{display:flex;align-items:center;gap:10px;margin-bottom:9px}
+.field label{font-size:12.5px;color:var(--mp-muted);flex:none;width:72px}
+.field .grow{flex:1}
+.field input[type=number]{width:76px}
+.switch{position:relative;display:inline-block;width:38px;height:22px;flex:none}
+.switch input{opacity:0;width:0;height:0;position:absolute}
+.slider{position:absolute;inset:0;background:var(--mp-border-strong);border-radius:22px;transition:.2s;cursor:pointer}
+.slider:before{content:"";position:absolute;width:18px;height:18px;left:2px;top:2px;
+  background:var(--mp-on-accent);border-radius:50%;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.15)}
+.switch input:checked + .slider{background:var(--mp-accent)}
+.switch input:checked + .slider:before{transform:translateX(16px)}
+.modal-foot{display:flex;gap:10px;margin-top:6px}
+.modal-foot button{flex:1}
+.ta-label{font-size:12.5px;color:var(--mp-muted);margin:10px 0 5px}
+.disabled{opacity:.62}
+.banner{display:none;align-items:center;gap:12px;background:var(--mp-warn-soft);border:1px solid var(--mp-border-strong);
+  color:var(--mp-warn);padding:11px 16px;border-radius:11px;font-size:13px;margin-bottom:16px;line-height:1.65}
+.banner.show{display:flex}
+.banner .grow{flex:1}
+.toast{position:fixed;top:26px;left:50%;transform:translate(-50%,-14px);opacity:0;
+  background:var(--mp-text);color:var(--mp-bg);padding:11px 22px;border-radius:11px;font-size:13.5px;
+  font-weight:600;z-index:99;transition:.25s cubic-bezier(.2,.8,.3,1);
+  box-shadow:0 10px 28px rgba(15,23,42,.28);pointer-events:none;white-space:nowrap}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.toast.err{background:var(--mp-danger)}
+.toast.ok{background:var(--mp-ok)}
+.dirty{color:var(--mp-warn) !important;border-bottom-color:var(--mp-warn) !important}
+.signin-tabs{display:flex;gap:4px;background:var(--mp-surface3,#eef2f9);padding:4px;border-radius:var(--mp-radius);width:max-content;margin:0 0 18px}
+.signin-tab{border:0 !important;border-radius:8px !important;padding:8px 16px !important;background:transparent !important;
+  color:var(--mp-muted,var(--mp-muted)) !important;font:600 13px/1 inherit;cursor:pointer}
+.signin-tab.active{background:var(--mp-surface,var(--mp-surface)) !important;color:var(--mp-accent,var(--mp-accent)) !important;
+  box-shadow:0 1px 4px rgba(16,24,40,.12)}
+.signin-tab:hover:not(.active){color:var(--mp-accent,var(--mp-accent)) !important}
+body.tool-tab #btnSave,body.tool-tab #btnAll{display:none}
+.starsky-view{height:calc(100vh - 205px);min-height:520px;border:1px solid var(--mp-border,var(--mp-border));border-radius:var(--mp-radius);
+  overflow:hidden;background:var(--mp-bg,var(--mp-bg));box-shadow:inset 0 3px 0 var(--mp-edge)}
+.starsky-frame{width:100%;height:100%;border:0;display:block;background:transparent}
+@media(max-width:800px){.starsky-view{height:calc(100vh - 170px);min-height:420px}}
+</style>
+<link rel="stylesheet" href="/shared/mp_ui.css?v=2">
+<script src="/shared/mp_ui.js?v=2"></script>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1><span class="dot"></span>一键签到</h1>
+      <div class="sub">微博超话 · 吾爱破解 · 百度贴吧 · StarSky 签到 · 网易云乐迷团 · 酷狗音乐　本地运行，Cookie 不出本机</div>
+    </div>
+    <div class="actions">
+      <a class="back-home" href="/">返回首页</a>
+      <button class="btn-ghost" id="btnSave">保存</button>
+      <button class="btn-main" id="btnAll">执行微博/贴吧/吾爱</button>
+    </div>
+  </header>
+
+  <nav class="signin-tabs" id="signinTabs" role="tablist">
+    <button type="button" class="signin-tab active" data-tab="cookie" role="tab">微博 / 贴吧 / 吾爱</button>
+    <button type="button" class="signin-tab" data-tab="starsky" role="tab">StarSky 签到</button>
+    <button type="button" class="signin-tab" data-tab="netease" role="tab">网易云乐迷团</button>
+    <button type="button" class="signin-tab" data-tab="kugou" role="tab">酷狗音乐</button>
+    <button type="button" class="signin-tab" data-tab="qq" role="tab">QQ 音乐</button>
+    <button type="button" class="signin-tab" data-tab="bili-vip" role="tab">B站大会员</button>
+  </nav>
+
+  <div id="cookieView">
+    <div class="banner" id="staleBanner">
+      <span class="grow" id="staleText"></span>
+    </div>
+
+    <div class="grid" id="cards"></div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <span>运行日志</span>
+        <span id="stat">就绪</span>
+      </div>
+      <div class="logs" id="logs"><div class="empty">点上面的按钮开始</div></div>
+    </div>
+
+    <div class="tip">
+      Cookie 存在 <code id="cfgPath">config.json</code>，只在本机读写<br>
+      Cookie 一般能用很久，失效了重新复制一次就行 · <a href="#" id="btnQuit" style="color:var(--mp-muted)">退出程序</a>
+    </div>
+  </div>
+
+  <div class="starsky-view" id="starskyView" style="display:none">
+    <iframe class="starsky-frame" id="starskyFrame" title="StarSky 签到" src="about:blank"></iframe>
+  </div>
+
+  <div class="starsky-view" id="neteaseView" style="display:none">
+    <iframe class="starsky-frame" id="neteaseFrame" title="网易云乐迷团" src="about:blank"></iframe>
+  </div>
+
+  <div class="starsky-view" id="kugouView" style="display:none">
+    <iframe class="starsky-frame" id="kugouFrame" title="酷狗音乐每日领 VIP" src="about:blank"></iframe>
+  </div>
+
+  <div class="starsky-view" id="qqView" style="display:none">
+    <iframe class="starsky-frame" id="qqFrame" title="QQ 音乐" src="about:blank"></iframe>
+  </div>
+
+  <div class="starsky-view" id="biliVipView" style="display:none">
+    <iframe class="starsky-frame" id="biliVipFrame" title="B站大会员大积分" src="about:blank"></iframe>
+  </div>
+</div>
+
+<!-- 微博扫码登录 -->
+<div class="modal" id="qrModal">
+  <div class="modal-box" style="max-width:420px">
+    <h3>微博扫码登录</h3>
+    <div class="note" id="qrMsg">正在打开微博登录页…</div>
+    <div style="text-align:center;margin:14px 0">
+      <img id="qrImg" alt="微博登录二维码"
+           style="display:none;max-width:264px;width:100%;border:1px solid var(--mp-border-strong);border-radius:var(--mp-radius)">
+    </div>
+    <ol style="font-size:13px;color:var(--mp-text);line-height:1.9;margin-left:18px">
+      <li>等浏览器窗口弹出微博登录页（第一次用会新开一个窗口）</li>
+      <li>用<b>微博 App</b> 扫页面上的二维码，或在右边弹窗里扫</li>
+      <li>手机上点确认后，这里会自动保存 Cookie，不用手动复制</li>
+    </ol>
+    <div class="modal-foot">
+      <button class="btn-ghost" id="qrClose">关闭</button>
+      <button class="btn-main" id="qrRetry" style="display:none">再试一次</button>
+    </div>
+  </div>
+</div>
+
+<!-- Cookie 获取说明 -->
+<div class="modal" id="modal">
+  <div class="modal-box">
+    <h3 id="mTitle">怎么拿 Cookie</h3>
+    <ol id="mBody"></ol>
+    <div class="note">Cookie 等于你的登录凭证，别发给别人。本程序只在你自己电脑上用它。</div>
+    <div class="modal-foot"><button class="btn-main" id="mClose">知道了</button></div>
+  </div>
+</div>
+
+<!-- 微博附加动作配置 -->
+<div class="modal" id="cfgModal">
+  <div class="modal-box">
+    <h3>微博附加动作</h3>
+    <div class="note danger">
+      转发和评论会在你的微博上<b>公开留下内容</b>，微博对这类自动操作的风控比签到严格得多。
+      频率太高可能触发验证码甚至限制账号。建议条数少一点、间隔长一点、别一天跑很多次。
+    </div>
+
+    <div class="group" style="margin-top:14px">
+      <div class="group-head">
+        <div>
+          <div class="t">自动转发</div>
+          <div class="d">转 TA 主页的最新原创微博，已经转过的自动跳过</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="repost_enable"><span class="slider"></span></label>
+      </div>
+      <div id="repostBody">
+        <div class="field">
+          <label>转发条数</label>
+          <input type="number" id="repost_count" min="1" max="10" value="2">
+        </div>
+        <div class="field">
+          <label>博主昵称</label>
+          <input type="text" class="grow" id="repost_author" placeholder="例如 封茗囧菌">
+        </div>
+        <div class="field">
+          <label>UID</label>
+          <input type="text" class="grow" id="repost_uid" placeholder="选填，留空会按昵称自动搜索">
+        </div>
+        <div class="field">
+          <label>话题筛选</label>
+          <input type="text" class="grow" id="repost_chaohua" placeholder="选填，只转正文里带这个词的">
+        </div>
+        <div class="ta-label">转发附言（每行一条，随机挑）</div>
+        <textarea id="repost_texts" placeholder="好听&#10;支持一下&#10;转发微博"></textarea>
+        <div class="ta-label">或者直接指定微博链接（每行一条，填了就不用去超话抓）</div>
+        <textarea id="repost_links" style="height:56px" placeholder="https://weibo.com/1234567890/NabcDEF"></textarea>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="group-head">
+        <div>
+          <div class="t">自动评论</div>
+          <div class="d">在指定的一条微博下面连评几条</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="comment_enable"><span class="slider"></span></label>
+      </div>
+      <div id="commentBody">
+        <div class="field">
+          <label>评论条数</label>
+          <input type="number" id="comment_count" min="1" max="20" value="5">
+        </div>
+        <div class="ta-label">水贴链接</div>
+        <input type="text" id="comment_url" placeholder="https://weibo.com/1234567890/NabcDEF">
+        <div class="ta-label">评论内容（每行一条，按顺序循环用）</div>
+        <textarea id="comment_texts" placeholder="打卡&#10;来了来了&#10;支持"></textarea>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="group-head">
+        <div>
+          <div class="t">博主点赞</div>
+          <div class="d">在博主本人的原创微博里挑一条没点过的点赞</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="like_enable"><span class="slider"></span></label>
+      </div>
+      <div id="likeBody">
+        <div class="ta-label">指定博主（留空＝转发目标博主，可填昵称或 UID）</div>
+        <input type="text" id="like_chaohua" placeholder="例如 封茗囧菌">
+        <div class="ta-label">只点博主本人发的微博；点过的记在 <code>data/liked.json</code>，不会重复点同一条。</div>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="group-head">
+        <div>
+          <div class="t">粉丝群消息</div>
+          <div class="d">在指定粉丝群里发一条消息，完成「消息互动」任务</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="group_enable"><span class="slider"></span></label>
+      </div>
+      <div id="groupBody">
+        <div class="field">
+          <label>群名称</label>
+          <input type="text" class="grow" id="group_name" placeholder="囧菌今天发歌了吗">
+        </div>
+        <div class="field">
+          <label>发什么</label>
+          <input type="text" class="grow" id="group_text" placeholder="1">
+        </div>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="group-head">
+        <div>
+          <div class="t">每日私聊问候</div>
+          <div class="d">按早/午/晚自动挑一条发给博主，每天只发一次</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="dm_enable"><span class="slider"></span></label>
+      </div>
+      <div id="dmBody">
+        <div class="field">
+          <label>发给谁</label>
+          <input type="text" class="grow" id="dm_target" placeholder="封茗囧菌">
+        </div>
+        <div class="field">
+          <label>05-11点</label>
+          <input type="text" class="grow" id="dm_morning">
+        </div>
+        <div class="field">
+          <label>11-14点</label>
+          <input type="text" class="grow" id="dm_noon">
+        </div>
+        <div class="field">
+          <label>其他时间</label>
+          <input type="text" class="grow" id="dm_night">
+        </div>
+        <div class="ta-label">今天已经发过的话会记在 <code>data/dm-sent.json</code>，当天再跑不会重复发。</div>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="group-head">
+        <div>
+          <div class="t">铁粉打卡</div>
+          <div class="d">打开手机版铁粉页，点「今日」打卡并领奖励（固定放最后，会弹浏览器）</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="fans_enable"><span class="slider"></span></label>
+      </div>
+      <div id="fansBody">
+        <div class="field">
+          <label>博主 UID</label>
+          <input type="text" class="grow" id="fans_blogger_uid" placeholder="3056354293">
+        </div>
+        <div class="field">
+          <label>你的 UID</label>
+          <input type="text" class="grow" id="fans_fans_uid" placeholder="链接里 fans_uid= 后面那串">
+        </div>
+        <div class="ta-label">打开铁粉页时地址栏形如：<br>page.star.weibo.com/z/bigFans?showmenu=0&amp;blogger_uid=<b>博主UID</b>&amp;fans_uid=<b>你的UID</b></div>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="group-head">
+        <div>
+          <div class="t">用户任务中心</div>
+          <div class="d">完成每日签到、自动看热搜，并自动领取已完成任务的积分奖励</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="mtask_enable"><span class="slider"></span></label>
+      </div>
+      <div id="mtaskBody">
+        <div class="ta-label">手机版 Cookie（m.weibo.cn 的会话，和上面 weibo.com 的 Cookie 不通用，需要单独抓）</div>
+        <textarea id="mtask_cookie" style="height:56px" placeholder="SUB=...; SCF=...; SSOLoginState=...; MLOGIN=...; WEIBOCN_FROM=..."></textarea>
+        <div class="ta-label">获取方式：浏览器打开 <b>m.weibo.cn</b> 并登录 → F12 → 网络面板 → 刷新 → 点 m.weibo.cn 的文档请求 → 复制 Cookie 整行。<br>Cookie 里要带 <b>SUB</b> 字段；WEIBOCN_FROM 会自动改成 App 渠道号，不用管。</div>
+        <div class="field">
+          <label>自动关注</label>
+          <label class="switch"><input type="checkbox" id="mtask_follow_enable"><span class="slider"></span></label>
+          <span class="hint">开启后会每天自动关注推荐列表里的陌生人以完成「关注」任务（10积分）。介意账号关注太多人就不要开。</span>
+        </div>
+        <div class="field">
+          <label>自动看热搜</label>
+          <label class="switch"><input type="checkbox" id="mtask_hot_search_enable"><span class="slider"></span></label>
+          <span class="hint">每天打开热搜页点一条热词，完成「看热搜」任务（5积分），不会发任何内容。</span>
+        </div>
+        <div class="ta-label">答题挑战赛、看短剧、看直播、参与发博打卡、桌面小组件、微博渔场等任务只能在微博 App 内完成，网页版会自动跳过，并在日志里列出剩余任务。</div>
+      </div>
+    </div>
+
+    <div class="modal-foot">
+      <button class="btn-ghost" id="cfgCancel">取消</button>
+      <button class="btn-main" id="cfgSave">保存设置</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const PLATFORMS = [
+  {key:'weibo', name:'微博超话', icon:'🔥', cls:'i-weibo', tag:'超话签到 · 转发 · 评论', cfg:true, qr:true, btn:'执行'},
+  {key:'pojie', name:'吾爱破解', icon:'🔧', cls:'i-pojie', tag:'每日任务签到（走浏览器）', login:true},
+  {key:'tieba', name:'百度贴吧', icon:'💬', cls:'i-tieba', tag:'批量签所有关注吧'}
+];
+
+const HOW = {
+  weibo: [
+    '嫌手动复制麻烦，可以直接点卡片上的 <b>扫码登录</b>：用微博 App 扫一下，Cookie 自动保存',
+    '想手动弄也行：浏览器打开 <b>weibo.com</b> 并确认已登录',
+    '按 <b>F12</b> 打开开发者工具，切到 <b>网络 / Network</b> 面板',
+    '刷新页面，点列表里第一个请求（一般是 weibo.com 这个文档请求）',
+    '在右侧 <b>请求标头 / Headers</b> 里找到 <b>Cookie:</b> 这一行',
+    '整行内容（不含 "Cookie:" 这几个字）复制过来，粘到上面的输入框',
+    'Cookie 里必须带 <b>XSRF-TOKEN</b> 字段，否则转发/评论/点赞会被微博拒绝；'
+    + '没带上就再复制一次（F12 → 应用程序 → Cookie → weibo.com 里能看到它）'
+  ],
+  pojie: [
+    '用浏览器打开 <b>www.52pojie.cn</b> 并确认已登录',
+    '按 <b>F12</b> 打开开发者工具，切到 <b>网络 / Network</b> 面板',
+    '刷新页面，点列表里第一个请求',
+    '在 <b>请求标头 / Headers</b> 里找到 <b>Cookie:</b> 这一行',
+    '整行内容（不含 "Cookie:" 这几个字）复制过来'
+  ],
+  tieba: [
+    '用浏览器打开 <b>tieba.baidu.com</b> 并确认已登录',
+    '按 <b>F12</b> 打开开发者工具，切到 <b>网络 / Network</b> 面板',
+    '刷新页面，点列表里第一个请求',
+    '在 <b>请求标头 / Headers</b> 里找到 <b>Cookie:</b> 这一行',
+    '整行内容复制过来。里面要包含 <b>BDUSS</b>，有这个字段才会走客户端批量签到（经验更多、速度快）'
+  ]
+};
+
+const API = '/signin/api';
+
+let state = {config:{}};
+let since = 0, polling = null, running = false;
+
+const cards = document.getElementById('cards');
+const logsEl = document.getElementById('logs');
+const statEl = document.getElementById('stat');
+
+// 每个内嵌页一个 tab：视图 id + iframe id + 首次进入时加载的地址。
+// 加新页面只改这张表，不用再去 showTab 里补 if。
+const TOOLS = {
+  starsky: {view: 'starskyView', frame: 'starskyFrame', src: '/starsky/'},
+  netease: {view: 'neteaseView', frame: 'neteaseFrame', src: '/netease-fans/'},
+  kugou:   {view: 'kugouView',   frame: 'kugouFrame',   src: '/kugou/'},
+  qq:      {view: 'qqView',      frame: 'qqFrame',      src: '/qq/'},
+  'bili-vip': {view: 'biliVipView', frame: 'biliVipFrame', src: '/bili-vip/'},
+};
+
+function showTab(tab, updateHash){
+  if (tab !== 'cookie' && !TOOLS[tab]) tab = 'cookie';
+  document.querySelectorAll('.signin-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.getElementById('cookieView').style.display = tab === 'cookie' ? '' : 'none';
+  Object.keys(TOOLS).forEach(k => {
+    const t = TOOLS[k];
+    document.getElementById(t.view).style.display = tab === k ? '' : 'none';
+  });
+  // 内嵌页自己管自己的保存按钮，顶栏那两个留着会误操作
+  document.body.classList.toggle('tool-tab', tab !== 'cookie');
+  if (TOOLS[tab]){
+    const frame = document.getElementById(TOOLS[tab].frame);
+    if (!frame.getAttribute('src') || frame.getAttribute('src') === 'about:blank'){
+      frame.src = TOOLS[tab].src + '?embed=1&v=' + Date.now();
+    }
+  }
+  if (updateHash){
+    try {
+      history.replaceState(null, '', location.pathname + location.search
+        + (tab === 'cookie' ? '' : '#' + tab));
+    } catch(e) {}
+  }
+}
+document.getElementById('signinTabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('.signin-tab');
+  if (btn) showTab(btn.dataset.tab, true);
+});
+window.addEventListener('hashchange', () => {
+  showTab(location.hash.replace('#', '') || 'cookie', false);
+});
+showTab(location.hash.replace('#', '') || 'cookie', false);
+
+// ---- 渲染卡片
+PLATFORMS.forEach(p => {
+  const el = document.createElement('div');
+  el.className = 'card';
+  el.innerHTML = `
+    <div class="card-head">
+      <div class="ico ${p.cls}">${p.icon}</div>
+      <div style="flex:1">
+        <div class="nm">${p.name}</div>
+        <div class="tag">${p.tag}</div>
+      </div>
+      <span class="state" id="st-${p.key}">未运行</span>
+    </div>
+    <textarea id="ck-${p.key}" placeholder="在这里粘贴 Cookie…" spellcheck="false"></textarea>
+    <div class="card-foot">
+      <span class="hint" data-k="${p.key}">如何获取 Cookie？</span>
+      <span style="display:flex;gap:6px;align-items:center">
+        ${p.qr ? `<button class="btn-mini" id="qr-${p.key}" title="用微博 App 扫码，自动拿 Cookie">扫码登录</button>` : ''}
+        ${p.login ? `<button class="btn-mini" id="login-${p.key}">登录</button>` : ''}
+        ${p.cfg ? `<button class="btn-cfg" id="cfg-${p.key}" title="转发 / 评论设置">⚙</button>` : ''}
+        <button class="btn-sign" id="go-${p.key}">${p.btn || '签到'}</button>
+      </span>
+    </div>`;
+  cards.appendChild(el);
+  el.querySelector('.hint').onclick = () => showHow(p.key, p.name);
+  el.querySelector('#ck-' + p.key).addEventListener('input', () => {
+    el.querySelector('.hint').classList.add('dirty');
+    document.getElementById('btnSave').textContent = '保存 *';
+  });
+  el.querySelector('#go-' + p.key).onclick = () => runOne(p.key);
+  if (p.qr) el.querySelector('#qr-' + p.key).onclick = () => openQr(p.key);
+  if (p.cfg) el.querySelector('#cfg-' + p.key).onclick = openCfg;
+  if (p.login) el.querySelector('#login-' + p.key).onclick = () => openLogin(p.key);
+});
+
+// ---- Cookie 说明弹窗
+function showHow(key, name){
+  document.getElementById('mTitle').textContent = name + ' · 获取 Cookie';
+  document.getElementById('mBody').innerHTML = HOW[key].map(x => '<li>' + x + '</li>').join('');
+  document.getElementById('modal').classList.add('show');
+}
+document.getElementById('mClose').onclick = () => document.getElementById('modal').classList.remove('show');
+document.getElementById('modal').onclick = e => { if (e.target.id === 'modal') e.target.classList.remove('show'); };
+
+async function openLogin(key){
+  toast('正在打开浏览器…');
+  try {
+    const r = await fetch(API + '/' + key + '-login', {method:'POST'});
+    const d = await r.json();
+    if (!d.ok) { toast(d.error || '打不开浏览器', 'err'); return; }
+    toast(d.note || '浏览器已打开，在里面登录完、关掉窗口就行', 'ok');
+  } catch(e) {
+    toast('打开失败：程序可能已经退出了', 'err');
+  }
+}
+
+// ---- 微博扫码登录
+let qrTimer = null;
+function qrStop(){
+  if (qrTimer) { clearInterval(qrTimer); qrTimer = null; }
+}
+async function openQr(key){
+  qrStop();
+  document.getElementById('qrMsg').textContent = '正在打开微博登录页…';
+  document.getElementById('qrImg').style.display = 'none';
+  document.getElementById('qrRetry').style.display = 'none';
+  document.getElementById('qrModal').classList.add('show');
+  try {
+    await fetch(API + '/' + key + '-qr-login', {method:'POST'});
+  } catch(e) {
+    document.getElementById('qrMsg').textContent = '打不开登录流程：程序可能已经退出了';
+    return;
+  }
+  const poll = async () => {
+    let d;
+    try {
+      const r = await fetch(API + '/weibo-qr-status');
+      d = await r.json();
+    } catch(e) { return; }
+    if (d.msg) document.getElementById('qrMsg').textContent = d.msg;
+    if (d.qr) {
+      const img = document.getElementById('qrImg');
+      if (img.getAttribute('src') !== d.qr) img.setAttribute('src', d.qr);
+      img.style.display = '';
+    }
+    if (d.stage === 'success') {
+      qrStop();
+      const ta = document.getElementById('ck-' + key);
+      if (ta && d.cookie) {
+        ta.value = d.cookie;
+        state.config[key] = state.config[key] || {};
+        state.config[key].cookie = d.cookie;
+      }
+      document.getElementById('qrRetry').style.display = 'none';
+      toast('Cookie 已自动保存', 'ok');
+      setTimeout(() => document.getElementById('qrModal').classList.remove('show'), 1800);
+    } else if (d.stage === 'error') {
+      qrStop();
+      document.getElementById('qrRetry').style.display = '';
+    }
+  };
+  poll();
+  qrTimer = setInterval(poll, 1500);
+}
+document.getElementById('qrClose').onclick = () => {
+  qrStop();
+  document.getElementById('qrModal').classList.remove('show');
+};
+document.getElementById('qrModal').onclick = e => { if (e.target.id === 'qrModal') { qrStop(); document.getElementById('qrModal').classList.remove('show'); } };
+document.getElementById('qrRetry').onclick = () => openQr('weibo');
+
+// ---- 微博附加动作配置
+const CFG_IDS = ['repost_enable','repost_count','repost_author','repost_uid','repost_chaohua','repost_texts',
+                 'repost_links','comment_enable','comment_count','comment_url','comment_texts',
+                 'like_enable','like_chaohua',
+                 'fans_enable','fans_blogger_uid','fans_fans_uid',
+                 'mtask_enable','mtask_cookie','mtask_follow_enable','mtask_hot_search_enable',
+                 'group_enable','group_name','group_text',
+                 'dm_enable','dm_target','dm_morning','dm_noon','dm_night'];
+
+function openCfg(){
+  const w = state.config.weibo || {};
+  CFG_IDS.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.type === 'checkbox') el.checked = !!w[id];
+    else el.value = (w[id] === undefined || w[id] === null) ? '' : w[id];
+  });
+  syncCfgDisabled();
+  document.getElementById('cfgModal').classList.add('show');
+}
+
+function syncCfgDisabled(){
+  document.getElementById('repostBody').classList.toggle('disabled', !document.getElementById('repost_enable').checked);
+  document.getElementById('commentBody').classList.toggle('disabled', !document.getElementById('comment_enable').checked);
+  document.getElementById('likeBody').classList.toggle('disabled', !document.getElementById('like_enable').checked);
+  document.getElementById('fansBody').classList.toggle('disabled', !document.getElementById('fans_enable').checked);
+  document.getElementById('mtaskBody').classList.toggle('disabled', !document.getElementById('mtask_enable').checked);
+  document.getElementById('groupBody').classList.toggle('disabled', !document.getElementById('group_enable').checked);
+  document.getElementById('dmBody').classList.toggle('disabled', !document.getElementById('dm_enable').checked);
+}
+document.getElementById('repost_enable').onchange = syncCfgDisabled;
+document.getElementById('comment_enable').onchange = syncCfgDisabled;
+document.getElementById('like_enable').onchange = syncCfgDisabled;
+document.getElementById('fans_enable').onchange = syncCfgDisabled;
+document.getElementById('mtask_enable').onchange = syncCfgDisabled;
+document.getElementById('group_enable').onchange = syncCfgDisabled;
+document.getElementById('dm_enable').onchange = syncCfgDisabled;
+
+document.getElementById('cfgCancel').onclick = () => document.getElementById('cfgModal').classList.remove('show');
+document.getElementById('cfgModal').onclick = e => { if (e.target.id === 'cfgModal') e.target.classList.remove('show'); };
+
+document.getElementById('cfgSave').onclick = async () => {
+  const w = state.config.weibo = state.config.weibo || {};
+  CFG_IDS.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.type === 'checkbox') w[id] = el.checked;
+    else if (el.type === 'number') w[id] = parseInt(el.value || '0', 10) || 0;
+    else w[id] = el.value;
+  });
+  const ok = await saveAll();
+  if (!ok) return;
+  document.getElementById('cfgModal').classList.remove('show');
+  toast('转发 / 评论设置已保存', 'ok');
+};
+
+// ---- 状态加载 / 保存
+async function loadState(){
+  const r = await fetch(API + '/state');
+  const s = await r.json();
+  state.config = s.config || {};
+  PLATFORMS.forEach(p => {
+    const ta = document.getElementById('ck-' + p.key);
+    if (ta) ta.value = (state.config[p.key] || {}).cookie || '';
+  });
+  const cp = document.getElementById('cfgPath');
+  cp.textContent = 'config.json';
+  cp.title = s.config_path || '';
+  if (s.running) setRunning(true);
+}
+
+function toast(msg, kind){
+  const old = document.querySelector('.toast');
+  if (old) old.remove();
+  const t = document.createElement('div');
+  t.className = 'toast' + (kind ? ' ' + kind : '');
+  t.textContent = msg;
+  document.body.appendChild(t);
+  requestAnimationFrame(() => t.classList.add('show'));
+  setTimeout(() => {
+    t.classList.remove('show');
+    setTimeout(() => t.remove(), 300);
+  }, 1900);
+}
+
+async function saveAll(){
+  const body = {};
+  PLATFORMS.forEach(p => {
+    const c = Object.assign({}, state.config[p.key] || {});
+    c.cookie = document.getElementById('ck-' + p.key).value;
+    body[p.key] = c;
+    state.config[p.key] = c;
+  });
+  try {
+    const r = await fetch(API + '/save', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || '保存失败');
+    // 微博的转发/评论/点赞要 XSRF-TOKEN，缺了不会立刻报错，跑起来才全灭，这里先拦一道
+    const wb = (body.weibo && body.weibo.cookie || '').trim();
+    if (wb && !/XSRF-TOKEN\s*=/i.test(wb)) {
+      toast('提醒：Cookie 里没有 XSRF-TOKEN，转发/评论/点赞会失败', 'err');
+      setTimeout(() => toast('去「如何获取 Cookie？」看怎么补上这一项', 'err'), 2100);
+    }
+    markSaved();
+    return true;
+  } catch (e) {
+    toast('保存失败：程序可能已经退出了，重新双击启动签到.bat', 'err');
+    return false;
+  }
+}
+
+function markSaved(){
+  PLATFORMS.forEach(p => {
+    const h = document.querySelector('.hint[data-k="' + p.key + '"]');
+    if (h) h.classList.remove('dirty');
+  });
+  document.getElementById('btnSave').textContent = '已保存';
+}
+
+document.getElementById('btnSave').onclick = async () => {
+  const ok = await saveAll();
+  if (ok) {
+    toast('Cookie 已保存', 'ok');
+    setTimeout(() => document.getElementById('btnSave').textContent = '保存', 1600);
+  }
+};
+
+function flash(text){
+  statEl.textContent = text;
+  setTimeout(() => { if (!running) statEl.textContent = '就绪'; }, 1600);
+}
+
+function setRunning(v){
+  running = v;
+  document.getElementById('btnAll').disabled = v;
+  document.getElementById('btnAll').textContent = v ? '执行中…' : '执行微博/贴吧/吾爱';
+  PLATFORMS.forEach(p => {
+    document.getElementById('go-' + p.key).disabled = v;
+    const st = document.getElementById('st-' + p.key);
+    if (v) { st.className = 'state'; st.textContent = '排队'; }
+  });
+  if (v) startPolling();
+}
+
+// ---- 执行
+async function startAll(){ await saveAll(); start(['weibo','pojie','tieba']); }
+async function runOne(key){ await saveAll(); start([key]); }
+document.getElementById('btnAll').onclick = startAll;
+
+async function start(targets){
+  if (running) return;
+  logsEl.innerHTML = '';
+  since = 0;
+  PLATFORMS.forEach(p => {
+    const st = document.getElementById('st-' + p.key);
+    st.className = 'state';
+    st.textContent = targets.includes(p.key) ? '等待' : '跳过';
+  });
+  const r = await fetch(API + '/run', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({targets})
+  });
+  const d = await r.json();
+  if (!d.ok) { flash(d.error || '启动失败'); return; }
+  setRunning(true);
+}
+
+// ---- 日志轮询
+function startPolling(){
+  if (polling) return;
+  polling = setInterval(poll, 400);
+  poll();
+}
+
+async function poll(){
+  let d;
+  try {
+    const r = await fetch(API + '/logs?since=' + since);
+    d = await r.json();
+  } catch(e){ return; }
+
+  (d.logs || []).forEach(addLine);
+  if (d.seq) since = d.seq;
+
+  if (d.done && !d.running){
+    clearInterval(polling); polling = null;
+    running = false;
+    document.getElementById('btnAll').disabled = false;
+    document.getElementById('btnAll').textContent = '执行微博/贴吧/吾爱';
+    let ok = 0, fail = 0, al = 0;
+    PLATFORMS.forEach(p => {
+      document.getElementById('go-' + p.key).disabled = false;
+      const s = (d.summary || {})[p.key];
+      const st = document.getElementById('st-' + p.key);
+      if (!s){ st.className = 'state'; st.textContent = '跳过'; return; }
+      if (s.error){ st.className = 'state err'; st.textContent = '失败'; }
+      else if (s.fail > 0){ st.className = 'state err'; st.textContent = '部分失败'; }
+      else { st.className = 'state ok'; st.textContent = '完成'; }
+      ok += s.ok || 0; fail += s.fail || 0; al += s.already || 0;
+    });
+    statEl.textContent = fail ? `完成 · 成功${ok} 已签${al} 失败${fail}` : `完成 · 成功${ok} 已签${al}`;
+  }
+}
+
+function addLine(x){
+  const empty = logsEl.querySelector('.empty');
+  if (empty) empty.remove();
+  const div = document.createElement('div');
+  div.className = 'line l-' + (x.l || 'info');
+  div.innerHTML = `<span class="tm">${x.t}</span><span class="tx">${esc(x.m)}</span>`;
+  logsEl.appendChild(div);
+  logsEl.scrollTop = logsEl.scrollHeight;
+}
+function esc(s){
+  return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+}
+
+document.getElementById('btnQuit').onclick = async e => {
+  e.preventDefault();
+  if (!confirm('确定要退出统一程序吗？退出后其他工具也会一起停止。')) return;
+  try { await fetch(API + '/quit', {method:'POST'}); } catch(err) {}
+  document.body.innerHTML = '<div style="text-align:center;padding:120px 20px;color:var(--mp-muted);' +
+    'font-family:system-ui,sans-serif"><div style="font-size:40px;margin-bottom:14px">👋</div>' +
+    '<div style="font-size:15px">统一程序已退出，这个页面可以关掉了</div></div>';
+};
+
+loadState().then(() => {
+  poll();
+  if (location.hash === '#cfg') setTimeout(openCfg, 200);
+});
+</script>
+<script src="/back.js" defer></script>
+</body>
+</html>

@@ -17,7 +17,9 @@ SETTINGS_FILE = DATA_ROOT / "ui_settings.json"
 _SAVE_LOCK = threading.Lock()
 
 
-THEMES = ("dark", "light", "ocean", "purple")
+THEMES = ("dark", "light")
+# 旧主题名并入深色，读到就映射回来
+THEME_ALIASES = {"ocean": "dark", "purple": "dark"}
 LANGS = ("zh", "en")
 
 
@@ -31,6 +33,7 @@ def load_settings() -> dict:
     if not isinstance(data, dict):
         data = {}
     theme = str(data.get("theme") or "dark")
+    theme = THEME_ALIASES.get(theme, theme)
     lang = str(data.get("lang") or "zh")
     return {
         "headless": bool(data.get("headless", False)),
@@ -44,8 +47,10 @@ def save_settings(settings: dict) -> dict:
         current = load_settings()
         if "headless" in settings:
             current["headless"] = bool(settings["headless"])
-        if "theme" in settings and settings["theme"] in THEMES:
-            current["theme"] = settings["theme"]
+        if "theme" in settings:
+            theme = THEME_ALIASES.get(str(settings["theme"]), str(settings["theme"]))
+            if theme in THEMES:
+                current["theme"] = theme
         if "lang" in settings and settings["lang"] in LANGS:
             current["lang"] = settings["lang"]
         try:

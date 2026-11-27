@@ -46,6 +46,16 @@ MTASK_UA = ("Mozilla/5.0 (iPhone; CPU iPhone OS 18_2_1 like Mac OS X) "
             "Weibo (iPhone13,3__weibo__16.10.3__iphone__os18.2.1)")
 MTASK_URL = ("https://m.weibo.cn/c/checkin?featurecode=from_sharingpage_to_mtask"
              "&luicode=20000301&lfid=task_mine2_signend")
+MTASK_PLAIN_UA = ("Mozilla/5.0 (iPhone; CPU iPhone OS 18_2_1 like Mac OS X) "
+                  "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 "
+                  "Mobile/15E148 Safari/604.1")
+
+# 这些任务只认微博 App 里的原生动作；网页端即使做了点赞/评论/转发也不会计入。
+MTASK_APP_ONLY = {
+    "shortplay", "liveshow", "daka", "daily_answer", "minigame", "widget",
+    "watch_ads", "push", "mobile", "birthday", "fishery",
+    "like", "act_like", "act_like_hot", "repost", "comment", "share",
+}
 
 
 # ---------------------------------------------------------------- 基础工具
@@ -385,33 +395,50 @@ class WeiboSenior:
             result["fail"] += 1
             self.log("warn", "今天似乎还没签上，明天跑的时候再确认（页面加载会自动签到）")
 
-        # 3. 关注任务（可选）：H5 关注推荐列表里的博主会真实计入任务进度
-        tasks = self._mtask_json(
-            f"https://m.weibo.cn/c/checkin/getTask?v3revision=1&st={st}", cookie_str)
-        if self.cfg.get("mtask_follow_enable"):
-            if self._do_follow_task(cookie_str, tasks):
-                # 关注会刷新任务进度，重新拉一次列表，完成状态交给下面的领取环节
-                sleep_between(1.0, 1.5)
-                tasks = self._mtask_json(
-                    f"https://m.weibo.cn/c/checkin/getTask?v3revision=1&st={st}", cookie_str)
+        # 3. 拉任务列表
+        try:
+            tasks = self._mtask_tasks_data(st, cookie_str)
+        except SignError as exc:
+            self.log("warn", f"任务列表拉取失败：{exc}")
+            return is_signed
 
-        # 4. 任务列表：已完成（status=2）的直接领奖励
-        claimed = 0
-        for group, items in (tasks.get("actions") or {}).items():
-            for it in items or []:
-                if it.get("status") not in (2, "2"):
-                    continue
-                tid, tname = it.get("id"), it.get("name") or it.get("ename") or "未知任务"
-                self.log("info", f"任务「{tname}」已完成，正在领奖励…")
-                d = self._mtask_json(
-                    f"https://m.weibo.cn/c/checkin/ug/score/claim"
-                    f"?action_id={tid}&is_android=0", cookie_str)
-                msg = ((d.get("data") or {}).get("msg")) or "领取成功"
-                self.log("success", f"任务「{tname}」：{msg}")
-                claimed += 1
-                sleep_between(0.8, 1.2)
-        if claimed:
-            self.log("info", f"共领取 {claimed} 个任务的奖励")
+        # 4. 关注任务（可选）：H5 关注推荐列表里的博主会真实计入任务进度
+        if self.cfg.get("mtask_follow_enable"):
+            follow = self._mtask_find(tasks, "follow")
+            if follow and self._mtask_incomplete(follow):
+                if self._do_follow_task(cookie_str, tasks):
+                    sleep_between(1.0, 1.5)
+                    try:
+                        tasks = self._mtask_tasks_data(st, cookie_str)
+                    except SignError:
+                        pass
+
+        # 5. 看热搜：H5 页面会带任务 token 上报，点一条热词即可完成
+        if self.cfg.get("mtask_hot_search_enable", True):
+            hot = self._mtask_find(tasks, "hot_search")
+            if hot and self._mtask_incomplete(hot):
+                if self._do_hot_search_task(cookie_str, tasks):
+                    sleep_between(1.5, 2.0)
+                    try:
+                        tasks = self._mtask_tasks_data(st, cookie_str)
+                    except SignError:
+                        pass
+
+        # 6. 领取已完成（status=2）的任务奖励
+        self._mtask_claim(tasks, cookie_str)
+
+        # 7. 汇总剩余任务，明确告知哪些只能在 App 内做
+        try:
+            tasks = self._mtask_tasks_data(st, cookie_str)
+        except SignError:
+            pass
+        remaining = self._mtask_remaining(tasks)
+        if remaining:
+            shown = "、".join(remaining[:12]) + ("…" if len(remaining) > 12 else "")
+            self.log("info", f"剩余 {len(remaining)} 个任务未完成：{shown}")
+            self.log("info", "标（App）的只能在微博 App 内完成；其余可检查对应开关或稍后重试。")
+        else:
+            self.log("success", "今天的任务中心任务都已完成")
         return is_signed
 
     def _do_follow_task(self, cookie_str, tasks):
@@ -479,6 +506,191 @@ class WeiboSenior:
                 self.log("warn", f"关注失败：{text[:80]}")
                 break
         return followed > 0
+
+    def _mtask_tasks_data(self, st, cookie_str):
+        return self._mtask_json(
+            f"https://m.weibo.cn/c/checkin/getTask?v3revision=1&st={st}", cookie_str)
+
+    @staticmethod
+    def _mtask_flat(tasks):
+        for group, items in (tasks.get("actions") or {}).items():
+            for it in items or []:
+                yield group, it
+
+    @classmethod
+    def _mtask_find(cls, tasks, ename):
+        for _, it in cls._mtask_flat(tasks):
+            if it.get("ename") == ename:
+                return it
+        return None
+
+    @staticmethod
+    def _mtask_incomplete(it):
+        try:
+            status = int(it.get("status") or 0)
+            done = int(it.get("num_done") or 0)
+            total = int(it.get("num") or 1)
+        except (TypeError, ValueError):
+            return True
+        return status not in (2, 3) and done < total
+
+    def _mtask_plain_headers(self, cookie_str):
+        return {
+            "Cookie": cookie_str,
+            "User-Agent": MTASK_PLAIN_UA,
+            "Referer": "https://m.weibo.cn/",
+            "X-Requested-With": "XMLHttpRequest",
+            "Accept": "application/json, text/plain, */*",
+        }
+
+    def _mtask_hot_words(self, containerid, extparam, cookie_str):
+        url = ("https://m.weibo.cn/api/container/getIndex?containerid="
+               + urllib.parse.quote(containerid, safe=""))
+        if extparam:
+            url += "&extparam=" + urllib.parse.quote(extparam, safe="")
+        try:
+            status, _, text = request(
+                url, headers=self._mtask_plain_headers(cookie_str), timeout=30)
+            data = json.loads(text)
+        except Exception:
+            return []
+        words = []
+        skip = ("更多", "实时热点，每分钟更新一次", "微博热搜")
+        for card in (data.get("data") or {}).get("cards") or []:
+            for group in card.get("card_group") or []:
+                word = str(group.get("title_sub") or group.get("desc") or "").strip()
+                if not word or len(word) > 40 or word in words:
+                    continue
+                if any(x in word for x in skip):
+                    continue
+                words.append(word)
+        return words[:30]
+
+    def _do_hot_search_task(self, cookie_str, tasks):
+        hot = self._mtask_find(tasks, "hot_search")
+        if not hot:
+            return False
+        scheme = str(hot.get("scheme") or "")
+        qs = urllib.parse.parse_qs(urllib.parse.urlparse(scheme).query)
+        containerid = (qs.get("containerid") or [""])[0]
+        extparam = (qs.get("extparam") or [""])[0]
+        if not containerid:
+            self.log("warn", "热搜任务缺少目标参数，跳过")
+            return False
+
+        self.log("info", "正在打开热搜页完成「看热搜」任务…")
+        words = self._mtask_hot_words(containerid, extparam, cookie_str)
+        url = ("https://m.weibo.cn/p/index?containerid="
+               + urllib.parse.quote(containerid, safe=""))
+        # 任务 token 藏在 extparam 里，H5 页要原样带上才会把点击计入任务。
+        if extparam:
+            url += "&extparam=" + urllib.parse.quote(extparam, safe="")
+
+        try:
+            from playwright.sync_api import sync_playwright
+        except Exception as exc:
+            self.log("warn", f"Playwright 不可用，热搜任务跳过：{exc}")
+            return False
+
+        clicked = ""
+        try:
+            with sync_playwright() as p:
+                try:
+                    browser = p.chromium.launch(channel="msedge", headless=True)
+                except Exception:
+                    browser = p.chromium.launch(headless=True)
+                try:
+                    ctx = browser.new_context(
+                        viewport={"width": 420, "height": 900},
+                        user_agent=MTASK_PLAIN_UA)
+                    ctx.add_cookies([
+                        {"name": k, "value": v, "domain": ".weibo.cn", "path": "/"}
+                        for k, v in parse_cookie(cookie_str).items()
+                    ])
+                    page = ctx.new_page()
+                    page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                    page.wait_for_timeout(5000)
+                    for word in words:
+                        try:
+                            loc = page.get_by_text(word, exact=True).first
+                            if loc.count():
+                                loc.click(timeout=3000)
+                                clicked = word
+                                break
+                        except Exception:
+                            continue
+                    if not clicked:
+                        clicked = page.evaluate("""
+                            () => {
+                              const a = Array.from(document.querySelectorAll('a[href*="q="]'))
+                                .find(x => (x.innerText || '').trim().length >= 2);
+                              if (!a) return '';
+                              const t = (a.innerText || '').trim().slice(0, 40);
+                              a.click();
+                              return t;
+                            }
+                        """)
+                    page.wait_for_timeout(6000)
+                finally:
+                    browser.close()
+        except Exception as exc:
+            self.log("warn", f"热搜任务没做成：{exc}")
+            return False
+
+        if clicked:
+            self.log("success", f"已点击热搜「{clicked}」")
+            return True
+        self.log("warn", "热搜页没找到可点击的词条")
+        return False
+
+    def _mtask_claim(self, tasks, cookie_str):
+        claimed = 0
+        seen = set()
+        for _, it in self._mtask_flat(tasks):
+            if str(it.get("status")) != "2":
+                continue
+            tid = str(it.get("id") or "")
+            if not tid or tid in seen:
+                continue
+            if "已领取" in str(it.get("button_name") or ""):
+                continue
+            seen.add(tid)
+            tname = it.get("name") or it.get("ename") or "未知任务"
+            self.log("info", f"任务「{tname}」已完成，正在领奖励…")
+            try:
+                d = self._mtask_json(
+                    "https://m.weibo.cn/c/checkin/ug/score/claim"
+                    f"?action_id={tid}&is_android=0", cookie_str)
+            except SignError as exc:
+                self.log("warn", f"任务「{tname}」领取失败：{exc}")
+                continue
+            inner = d.get("data") or {}
+            msg = inner.get("msg") or d.get("msg") or "领取成功"
+            self.log("success", f"任务「{tname}」：{msg}")
+            claimed += 1
+            sleep_between(0.8, 1.2)
+        if claimed:
+            self.log("info", f"共领取 {claimed} 个任务的奖励")
+        return claimed
+
+    def _mtask_remaining(self, tasks):
+        out = []
+        for group, it in self._mtask_flat(tasks):
+            if group == "external" or not self._mtask_incomplete(it):
+                continue
+            ename = str(it.get("ename") or "")
+            name = str(it.get("name") or ename or "未知任务")
+            if ename == "follow" and not self.cfg.get("mtask_follow_enable"):
+                name += "（自动关注未开启）"
+            elif ename == "hot_search" and not self.cfg.get("mtask_hot_search_enable", True):
+                name += "（自动热搜未开启）"
+            elif ename in MTASK_APP_ONLY or any(
+                    x in name for x in ("答题", "短剧", "直播", "打卡", "小组件",
+                                        "渔场", "广告", "通知", "绑定手机", "生日",
+                                        "点赞", "转发", "评论", "分享")):
+                name += "（App）"
+            out.append(name)
+        return out
 
     def _do_repost(self, cookie, result):
         count = max(1, int(self.cfg.get("repost_count") or 2))
@@ -1897,6 +2109,10 @@ DEFAULT_CONFIG = {
         "comment_texts": "",
         "like_enable": True,
         "like_chaohua": "",
+        "mtask_enable": False,
+        "mtask_cookie": "",
+        "mtask_follow_enable": False,
+        "mtask_hot_search_enable": True,
         "fans_enable": False,
         "fans_blogger_uid": "3056354293",
         "fans_fans_uid": "",

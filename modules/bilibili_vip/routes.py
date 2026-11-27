@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from modules.bilibili_vip import core
 
-UI_PATH = Path(__file__).resolve().parent / "ui.html"
+UI_PATH = Path(__file__).resolve().parents[2] / "legacy" / "web_ui" / "modules" / "bilibili_vip" / "ui.html"
 
 router = APIRouter(prefix="/bili-vip")
 

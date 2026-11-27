@@ -26,14 +26,14 @@
 命令行等价用法（在 `modules/taobao_chat/tool` 下）：
 
 ```bash
-node export.js --login                       # 登录并保存登录态
-node export.js --status                      # 检查登录态，输出 JSON
-node export.js --url="https://market.m.taobao.com/app/im/chat/index.html?&uid=cntaobaoXXX&type=web"
-node export.js --input=input.json            # {"urls": ["...", "..."]}
-node export.js --url=... --mode=full         # 全量重建
+python export.py --login                       # 登录并保存登录态
+python export.py --status                      # 检查登录态，输出 JSON
+python export.py --url="https://market.m.taobao.com/app/im/chat/index.html?&uid=cntaobaoXXX&type=web"
+python export.py --input=input.json            # {"urls": ["...", "..."]}
+python export.py --url=... --mode=full         # 全量重建
 ```
 
-依赖 Node 16+；`playwright-core` 可直接复用微博模块 `modules/weibo_chat/tool/node_modules` 里已装好的版本，也可以在 `modules/taobao_chat/tool` 下执行 `npm install`。
+依赖 Python 与 Playwright：在项目根目录运行 `python -m pip install -r requirements.txt`。优先使用本机 Chrome / Edge，也可运行 `python -m playwright install chromium` 安装浏览器内核。图片、头像、音频、视频会尽量下载到导出目录；失败时保留在线链接并写日志。
 
 ---
 

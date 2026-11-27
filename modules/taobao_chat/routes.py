@@ -1,6 +1,6 @@
 """淘宝旺旺聊天记录导出（买家侧）：登录、导出、离线查看。
 
-复用微博聊天记录那套结构：FastAPI 控制台 + Node/Playwright 导出工具 + 本地 HTML 查看器。
+复用微博聊天记录那套结构：FastAPI 控制台 + Python/Playwright 导出工具 + 本地 HTML 查看器。
 淘宝网页版没有公开的买家会话列表接口，所以导出目标由用户在控制台粘贴聊天链接
 （聊天窗口地址栏里的 .../app/im/chat/index.html?&uid=cntaobaoXXX&type=web）。
 """
@@ -9,6 +9,8 @@ import json
 import os
 import shutil
 import subprocess
+import sys
+import importlib.util
 import threading
 import time
 import uuid
@@ -20,7 +22,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
 HOME = Path(os.environ.get("TAOBAO_CHAT_HOME") or Path(__file__).resolve().parent / "data")
-UI_PATH = Path(__file__).resolve().parent / "static" / "index.html"
+UI_PATH = Path(__file__).resolve().parents[2] / "legacy" / "web_ui" / "modules" / "taobao_chat" / "ui.html"
 USERSCRIPT_PATH = Path(__file__).resolve().parent / "static" / "taobao-export.user.js"
 TOOL_DIR = Path(__file__).resolve().parent / "tool"
 RUN_LOG = HOME / "run.log"
@@ -187,12 +189,17 @@ def _rotate_log() -> None:
         pass
 
 
-def _node() -> str | None:
-    return shutil.which("node")
+def _python() -> str:
+    return sys.executable
+
+
+def _playwright_available() -> bool:
+    return importlib.util.find_spec("playwright") is not None
 
 
 def _env() -> dict:
     env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
     env["TAOBAO_CHAT_HOME"] = str(HOME)
     env["TAOBAO_CHAT_OUT"] = str(_out())
     env["TAOBAO_CHAT_PROFILE"] = str(_profile_dir())
@@ -222,14 +229,8 @@ def _reader(proc: subprocess.Popen) -> None:
 
 
 def _start(args: list[str], kind: str) -> tuple[bool, str]:
-    node = _node()
-    if not node:
-        return False, "未找到 Node.js，请先安装 Node 16 以上版本"
-    if not (TOOL_DIR / "node_modules" / "playwright-core").exists():
-        # 允许复用微博模块里装好的 playwright-core，避免重复安装
-        shared = TOOL_DIR.parent.parent / "weibo_chat" / "tool" / "node_modules" / "playwright-core"
-        if not shared.exists():
-            return False, "缺少 playwright-core，请在 modules/taobao_chat/tool 下执行 npm install"
+    if not _playwright_available():
+        return False, "缺少 Python Playwright，请执行 python -m pip install -r requirements.txt"
 
     _account_cache.update(ts=0.0, data=None)
     with _lock:
@@ -241,7 +242,7 @@ def _start(args: list[str], kind: str) -> tuple[bool, str]:
         _state["exit_code"] = None
         _state["stop_requested"] = False
 
-    cmd = [node, "export.js", *args]
+    cmd = [_python(), "-u", "export.py", *args]
     _append(f"$ {' '.join(cmd[1:])}")
     try:
         proc = subprocess.Popen(
@@ -319,7 +320,8 @@ def _task() -> dict:
             "exit_code": _state["exit_code"],
             "stop_requested": _state["stop_requested"],
             "seq": _seq,
-            "node": bool(_node()),
+            "python": True,
+            "playwright": _playwright_available(),
         }
 
 
@@ -391,7 +393,8 @@ def logs(since: int = 0):
                 "kind": _state["kind"],
                 "exit_code": _state["exit_code"],
                 "seq": _seq,
-                "node": bool(_node()),
+                "python": True,
+            "playwright": _playwright_available(),
             },
         }
 
@@ -407,16 +410,15 @@ def account():
     if _account_cache["data"] and now - _account_cache["ts"] < 15:
         return {"ok": True, **_account_cache["data"], "cached": True}
 
-    node = _node()
-    if not node:
-        return {"ok": False, "error": "未找到 Node.js"}
+    if not _playwright_available():
+        return {"ok": False, "error": "缺少 Python Playwright，请先安装 requirements.txt"}
     if not _profile_dir().exists():
         return {"ok": True, "logged_in": False, "name": "", "uid": "", "note": "还没有登录过淘宝"}
 
     with _account_lock:
         try:
             proc = subprocess.run(
-                [node, "export.js", "--status"],
+                [_python(), "-u", "export.py", "--status"],
                 cwd=str(TOOL_DIR),
                 capture_output=True,
                 text=True,

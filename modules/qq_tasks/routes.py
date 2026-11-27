@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from modules.qq_tasks import core
 
-UI_PATH = Path(__file__).resolve().parent / "ui.html"
+UI_PATH = Path(__file__).resolve().parents[2] / "legacy" / "web_ui" / "modules" / "qq_tasks" / "ui.html"
 
 router = APIRouter(prefix="/qq")
 
@@ -44,12 +44,17 @@ def state():
 def save(body: dict = Body(...)):
     music = core.load_music()
     m = body.get("music") or {}
+    if not isinstance(m, dict):
+        return JSONResponse({"ok": False, "error": "music 必须是配置对象"}, status_code=400)
     for key in core.DEFAULT_MUSIC:
         if key in m:
             music[key] = m[key]
     if isinstance(music.get("cookie"), str):
         music["cookie"] = core.norm_cookie(music["cookie"])
-    core.save_music(music)
+    try:
+        core.save_music(music)
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
     return {"ok": True}
 
 

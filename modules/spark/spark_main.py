@@ -405,48 +405,62 @@ def _start_browser_session(account_id=None):
     if err:
         return err
     runtime.driver = driver
-    runtime.douyin = Douyin(driver)
-    # 预置「昵称 -> 隐藏ID」：重启后还没刷新好友列表时，也能按 ID 找人
-    runtime.douyin.load_cached_ids(load_friends())
-    chat_ok = runtime.douyin.ensure_chat_page()
-    if not chat_ok:
-        print('⚠️ 初始化后未能进入抖音聊天页，请确认已登录或稍后点「刷新好友」重试')
-    runtime.init = True
-    runtime.Login_is_bool = bool(chat_ok)  # 聊天页能进基本等于已登录
-    _user_cache['nickname'] = ''
-    _user_cache['avatar'] = ''
-    start_scheduler()  # 启动调度线程
-    restore_tasks()  # 恢复持久化的定时任务（仅当前账号）
-    _fill_missing_sec_uids()
-    if not chat_ok:
-        _try_auto_login_with_saved_cookies()
-    else:
-        # 登录态存回与聊天导出共用的 Cookie 存档：导出那边 profile 掉登录时能直接恢复
-        _save_current_cookies_to_account()
-    _mark_browser_alive()
+    try:
+        runtime.douyin = Douyin(driver)
+        # 预置「昵称 -> 隐藏ID」：重启后还没刷新好友列表时，也能按 ID 找人
+        runtime.douyin.load_cached_ids(load_friends())
+        chat_ok = runtime.douyin.ensure_chat_page()
+        runtime.init = True
+        runtime.Login_is_bool = bool(chat_ok and _douyin_logged_in())
+        _user_cache['nickname'] = ''
+        _user_cache['avatar'] = ''
+        start_scheduler()
+        restore_tasks()
+        _fill_missing_sec_uids()
+        if not runtime.Login_is_bool:
+            _try_auto_login_with_saved_cookies()
+        else:
+            _save_current_cookies_to_account()
+        _mark_browser_alive()
+    except Exception as exc:
+        _quit_browser()
+        return {'code': 500, 'data': f'浏览器初始化失败：{str(exc)[:180]}，请检查浏览器设置后重试'}
     browser_name = normalize_browser_name(config.get('browser_name'))
-    return {'code': 200, 'data': f'{get_browser_label(browser_name)} 初始化成功'}
+    login_note = '已恢复账号登录态' if runtime.Login_is_bool else '尚未登录，请点「登录账号」完成登录'
+    return {'code': 200, 'data': f'{get_browser_label(browser_name)} 初始化成功，{login_note}',
+            'initialized': True, 'logged_in': runtime.Login_is_bool,
+            'account_id': runtime.active_account_id}
 
 
 @app.get('/Api/Init')  # 初始化浏览器
-def Init(authorization: str = Header(None)):
+def Init(authorization: str = Header(None), account_id: str = Query(None)):
     auth_err = require_auth(authorization)
     if auth_err:
         return auth_err
-    if runtime.login_pending:
-        return {'code': 400, 'data': '正在等待浏览器登录，请先在弹出的窗口里完成登录'}
-
-    with init_lock:  # 加锁，防止重复点击触发多次初始化
+    # 与切号/扫码登录使用同一个锁，避免两条请求同时占用同一个 profile。
+    with runtime.account_lock, init_lock:
+        if runtime.login_pending:
+            return {'code': 400, 'data': '正在等待浏览器登录，请先在弹出的窗口里完成登录'}
+        if progress.snapshot().get('running'):
+            return {'code': 400, 'data': '消息发送正在进行，请结束发送后再初始化浏览器'}
+        if account_id and account_id != runtime.active_account_id:
+            if not account_store.get_account(account_id):
+                return {'code': 404, 'data': '账号不存在'}
+            _quit_browser()
+            unload_tasks()
+            account_store.set_active_account(account_id)
+            group_store.load_groups()
         if runtime.init and runtime.driver is not None:
             try:
-                # 会话还活着才算是「重复初始化」
                 runtime.driver.current_url
                 _mark_browser_alive()
-                return {'code': 200, 'data': 'init Repeated!'}
+                login_note = '账号已登录' if runtime.Login_is_bool else '尚未登录，请点「登录账号」'
+                return {'code': 200, 'data': f'浏览器已初始化，{login_note}',
+                        'initialized': True, 'logged_in': runtime.Login_is_bool,
+                        'account_id': runtime.active_account_id}
             except Exception:
-                # 浏览器被用户手动关掉，但状态还留着：清掉再重新初始化
                 _quit_browser()
-        return _start_browser_session()
+        return _start_browser_session(account_id=account_id)
 
 
 @app.get('/Api/GetInit')  # 获取初始化状态
@@ -464,6 +478,8 @@ def _switch_to_account(account_id):
     if not account_store.get_account(account_id):
         return {'code': 404, 'data': '账号不存在'}
     with runtime.account_lock:
+        if progress.snapshot().get('running'):
+            return {'code': 400, 'data': '消息发送正在进行，请结束发送后再切换账号'}
         _quit_browser()
         unload_tasks()  # 取消旧账号的定时调度（任务仍留在磁盘）
         account_store.set_active_account(account_id)
@@ -633,6 +649,8 @@ def account_browser_login(payload: dict = Body(default=None), authorization: str
     account_id = str(payload.get('account_id') or '').strip()
 
     with runtime.account_lock:
+        if progress.snapshot().get('running'):
+            return {'code': 400, 'data': '消息发送正在进行，请结束发送后再登录账号'}
         if runtime.login_pending:
             return {'code': 400, 'data': '已有登录窗口正在等待，请先完成或取消'}
 
@@ -1414,16 +1432,21 @@ def run_batch_once(payload: dict = Body(...), authorization: str = Header(None))
     task_ids = payload.get('task_ids') or []
     if not isinstance(task_ids, list) or not task_ids:
         return {'code': 400, 'data': '请先选择要执行的任务'}
-    drv_err = check_driver()
-    if drv_err:
-        return drv_err
-    if risk_state.get('paused'):
-        return {'code': 400, 'data': '风控已暂停，请先在设置页恢复自动任务'}
-    if progress.snapshot().get('running'):
-        return {'code': 400, 'data': '已有发送任务正在进行，请等它结束或先点「停止」'}
-
-    job = progress.begin('batch', len(task_ids), f'共 {len(task_ids)} 个任务')
-    threading.Thread(target=_batch_send_worker, args=(list(task_ids),), daemon=True).start()
+    if any(not isinstance(task_id, str) for task_id in task_ids):
+        return {'code': 400, 'data': '任务 ID 格式不正确'}
+    task_ids = list(dict.fromkeys(task_ids))
+    with runtime.account_lock:
+        if any(task_id not in scheduled_tasks for task_id in task_ids):
+            return {'code': 404, 'data': '所选任务已变更，请刷新任务列表后重试'}
+        drv_err = check_driver()
+        if drv_err:
+            return drv_err
+        if risk_state.get('paused'):
+            return {'code': 400, 'data': '风控已暂停，请先在设置页恢复自动任务'}
+        if progress.snapshot().get('running'):
+            return {'code': 400, 'data': '已有发送任务正在进行，请等它结束或先点「停止」'}
+        job = progress.begin('batch', len(task_ids), f'共 {len(task_ids)} 个任务')
+        threading.Thread(target=_batch_send_worker, args=(list(task_ids),), daemon=True).start()
     return {'code': 200, 'data': f'已开始发送，共 {len(task_ids)} 个任务', 'job_id': job['job_id']}
 
 

@@ -1,94 +1,110 @@
-# chat-export-toolkit · 多平台聊天记录导出及签到续火花
+# 多平台工具箱 · MultiPlatformToolkit
 
-本地运行的多平台工具集：把各平台私信/群聊导出成可离线浏览的本地页面，并提供一键签到与火花续期。所有数据只落在本机，不上传任何服务器。
+GitHub：[xinmuxinmu/MultiPlatformToolkit](https://github.com/xinmuxinmu/MultiPlatformToolkit)
 
-## 功能模块
+Python 原生桌面工具：聊天记录备份、每日签到、音乐乐迷任务、抖音火花与圈子任务入口。界面使用 PySide6 Widgets，本机服务和业务执行使用 Python，不需要 Node.js、npm、Vue 构建或 PowerShell 业务脚本。
 
-| 模块 | 路由 | 说明 |
-| --- | --- | --- |
-| 抖音聊天 / 火花 | `/douyin`、`/spark` | 抖音私信导出与火花续期，账号隔离 |
-| 微博聊天记录 | `/weibo-chat` | 私信/群聊导出，图片语音视频本地化 |
-| B站聊天记录 | `/bili-chat` | 私信 + 应援团群聊导出，分享卡片/图片离线可读 |
-| 淘宝旺旺记录 | `/taobao` | 买家侧聊天导出 |
-| 一键签到 | `/signin` | 微博 / 贴吧 / 吾爱 / StarSky |
-| 网易云乐迷团 | `/signin#netease` | 乐迷团每日任务、亲密值进度，任务自动识别并可在设置里勾选，支持快捷登录 |
-| 酷狗音乐 | `/signin#kugou` | 每日领 VIP（听歌 / 广告），乐迷团信息；勋章任务自动识别，默认自动尝试全部非付费任务（购买/付费/金币兑换除外），勾选会保存 |
-| QQ 音乐 / QQ 签到 | `/signin#qq` | QQ 音乐每日签到、乐迷勋章与勋章任务；可自选要签到的歌手/勋章、任务类型，勾选会保存 |
-| B站大会员大积分 | `/signin#bili-vip` | 签到、等级加速包、福利 / 浏览任务，复用 B站聊天记录登录态 |
+## 启动
 
-统一入口 `http://127.0.0.1:18000/`，左侧栏切换模块。
+Windows 双击 **启动.bat**。首次启动会创建 `.venv` 并安装 Python 依赖，失败时会显示原因；环境已就绪时直接打开桌面界面。重复启动会唤起已有窗口。
 
-## 快速开始
+本机项目主目录已迁移到 `D:\PythonApps\MultiPlatformToolkit`，请从新目录启动和继续开发。旧中文目录暂留迁移备份，其中的启动入口会转向新目录；账号和导出数据以新目录的 `data/` 为准。
 
-```bash
+需要 Python 3.10+，建议使用 Python 3.12，并安装 Chrome 或 Edge 供扫码登录与真实网页操作。没有本机浏览器时可用 `.venv\Scripts\python.exe -m playwright install chromium` 安装 Playwright Chromium。
+
+```powershell
+# 手动安装与启动
 python -m venv .venv
-.venv/Scripts/activate          # Windows
-pip install -r requirements.txt
-python main.py
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+.venv\Scripts\python.exe main.py
+
+# 显示启动与服务日志
+启动.bat --verbose
+
+# 只检查依赖和服务结构，不执行签到
+.venv\Scripts\python.exe main.py --check
+
+# 仅运行本机 Python 服务，本次不恢复自动任务
+.venv\Scripts\python.exe main.py --headless --no-schedule
 ```
 
-Windows 也可直接双击 `启动.bat`（首次会自动建虚拟环境装依赖）。启动后会自动打开应用窗口；关闭应用窗口或控制台窗口都会结束后端进程。控制台默认保持空白，日志写入 `data/logs/app.log`；调试时设置 `APP_VERBOSE=1` 可恢复控制台输出。
+默认服务地址 `127.0.0.1:18000`。可用 `APP_PORT` 修改端口，`APP_DATA_DIR` 修改数据目录。主界面是原生窗口，不再用浏览器页面作为应用外壳。
 
-### 各平台导出工具依赖
+## 使用方式
 
-微博 / B站 / 淘宝模块用 Playwright 复用已登录的浏览器会话：
+侧栏按「每日任务 / 聊天记录 / 自动维护」分组，可搜索工具。底部切换深浅色与打开全局设置；配色、控件和窗口布局参考本机 `yd` 界面规范。
 
-```bash
-cd modules/weibo_chat/tool && npm install    # weibo_chat 与 bilibili_chat 共用
-cd modules/taobao_chat/tool && npm install
-```
+签到类页面保留「概览 / 设置」流程：概览看账号、任务进度、勋章与日志；设置中登录、勾选任务、保存。底层字段放在高级设置中，日常使用不需要编辑 JSON。刷新不会覆盖未保存设置。
 
-需要本机安装 Chrome 或 Edge。首次使用在模块页点「登录 / 添加账号」扫码，登录态按账号加密保存在本机，之后导出走无头模式。
+聊天类页面先添加或选择账号，再登录、导出；支持增量更新、会话/消息搜索、分页阅读、本机附件与目录打开。抖音另支持整库导入、导出、定时采集、图片/视频补齐和 Python 长图渲染。删除与覆盖导入需明确确认。
 
-## 数据存放
+## 功能
 
-所有导出数据、登录态、账号索引都在 `data/` 下，已通过 `.gitignore` 排除，不会进仓库：
-
-```
-data/
-  bilibili_chat/accounts/<账号>/   # state.json 登录态 + export/ 导出结果
-  weibo_chat/accounts/<账号>/
-  taobao_chat/
-  douyin_chat/
-  logs/app.log                     # 后端运行日志（控制台安静模式）
-```
-
-导出产物是自包含的离线页面（`raw.json` + `*.html` + `images/` + `avatars/`），可直接双击打开或分享给本人设备。
-
-## 目录结构
-
-```
-app/            统一壳：FastAPI 入口、页面外壳、共享 UI 资源
-modules/
-  bilibili_chat/  B站：routes.py + static/ + tool/(export.js, template.html)
-  weibo_chat/     微博：同上结构
-  taobao_chat/    淘宝：同上结构
-  douyin_chat/    抖音：后端 + Vue 前端 + 提取器
-  signin/         一键签到
-  bilibili_vip/   B站大会员大积分（core + routes + ui）
-  spark/          火花
-  starsky/
-main.py         启动入口（uvicorn，默认 18000 端口）
-```
-
-### B站大会员大积分
-
-接口移植自 [RayWangQvQ/BiliBiliToolPro](https://github.com/RayWangQvQ/BiliBiliToolPro)（MIT）的 `VipBigPoint` 任务，登录态直接复用「B站聊天记录」的账号，不用重复扫码。
-
-实测结果：
-
-| 任务 | 结果 |
+| 模块 | 功能 |
 | --- | --- |
-| 每日签到 / 大会员福利 / 权益页 | 正常 |
-| 大会员等级加速包 | 正常，但服务端要求先看过视频才给换 |
-| 浏览追番频道 / 影视频道 / 会员购 | 正常，各 +10，积分实测到账 |
-| 浏览装扮商城主页 | 走不通（`complete/v2` 稳定 `-400`），需手动打开装扮商城 |
-| 观看剧集内容 | 走不通，领取接口要 App 端 `access_key`，且要真看满 10 分钟 |
-| 购买类（影片 / 会员购 / 装扮 / 线下） | 程序一律不碰 |
+| QQ 音乐 | 每日签到、乐迷勋章、歌词卡签到、服务端任务发现、歌手与任务类型勾选 |
+| 网易云乐迷团 | 任务、亲密值进度与快捷登录 |
+| 酷狗音乐 | App 二维码登录、网页登录、每日任务与乐迷勋章 |
+| B站大会员 / 小黑盒 | 各平台已有每日任务 |
+| 一键签到 | 微博、贴吧、吾爱破解 |
+| AI 工具 | Trae、Qoder 国内/国际、WorkBuddy、豆包、MiniMax、DuMate、LobsterAI；保留登录态续期与每日定时 |
+| 抖音 / 微博 / B站 / 淘宝 | Python 聊天导出、多账号、本机媒体、离线备份 |
+| 火花续期 | 账号、好友、分组、定时消息和风控配置 |
+| StarSky | Python/Win32 签到与 Windows 每日计划 |
+| 抖音粉丝团 | 趣追「封茗囧菌的圈子」官方入口解析、截图任务参考与可用网页状态检测 |
 
-关键坑：App 侧参数 `build` 必须带且够新，否则接口统一回 `6007000 请将客户端更新至最新版本`（见上游 issue #1195）；字段名是 `task_code` 下划线形式，会员购埋点是 `eventId` 驼峰。
+## QQ 音乐修复范围
 
-## 说明
+- 兼容新版/旧版任务列表与服务端新任务类型，按实际能力区分可执行、需客户端、消费和已下架。
+- 免费网页任务会真实访问、按平台条件处理，然后重抓进度；返回成功但进度未变时不会伪造「已完成」。
+- 修复字符串状态误判、歌手卡池串用、复查失败伪造完成等问题。
+- 看广告、真实收听、分享及小游戏需要平台客户端能力；不伪造广告 Token、时长、游戏结果，不自动消耗抽卡次数或钻石。
+- 旧登录 Cookie 已过期时需要重新登录。本次验证以官方页面/代码核对和模拟回归为主，未执行真实账号付费、发布或奖励领取，不将模拟测试等同实际积分到账。
 
-- 仅供导出**本人账号**的聊天记录用于备份，请遵守各平台用户协议，不要用于抓取他人数据或商业分发。
-- 平台接口与页面结构可能变化，若某模块失效，通常是接口路径或字段变更，见各模块 `README.md`。
+## 封茗囧菌圈子
+
+默认已接入本次提供的官方分享链接，能解析到：趣追、封茗囧菌的圈子、小程序 `tte9a89f1576a4b96b01`、圈子 `27933289767426`。该链接的官方网页只有「打开小程序」入口，任务面板在抖音极速版客户端内；浏览器端没有可直接执行的签到接口。
+
+已加入截图中的听歌、评论、分享、投稿、讨论、邀请、团热度打卡、直播与消费类任务。截图数值明确标为参考，尚未同步时不会显示为实时进度。当前分享入口会明确提示在客户端完成；不会假报自动签到成功。评论、分享、投稿与邀请由本人操作，钻石/灯牌/礼物不自动执行。
+
+## 定时任务
+
+AI 应用内定时保留原配置。Windows 外部计划任务改用 Python 管理：
+
+```powershell
+.venv\Scripts\python.exe install_ai_task.py --time 10:20
+.venv\Scripts\python.exe install_ai_task.py --time 09:30 --wake
+.venv\Scripts\python.exe install_ai_task.py --remove
+```
+
+StarSky 页面重新保存时间会更新为 Python 计划任务。旧版指向 `.ps1` 的计划任务会显示迁移提示。不要并行运行多个版本，以免同时操作同一个浏览器 profile。
+
+## 数据与目录
+
+```text
+MultiPlatformToolkit/
+  app/desktop/          原生界面、主题、控件、后台请求
+  app/server.py         本机 Python API
+  modules/              各平台 Python 业务
+  modules/chat_export/  微博与 B站共享导出服务
+  legacy/web_ui/        迁移前网页界面存档，日常运行不需要构建
+  scripts/              本地验证和预览辅助脚本
+  tests/                不使用真实账号的回归测试
+  data/                 原有账号、Cookie、导出记录与日志（不进 Git）
+  bootstrap.py          Python 环境检查与桌面启动
+  main.py               原生应用 / 本机服务入口
+  启动.bat              Windows 薄启动入口
+```
+
+保留原有 `data/` 内容和账号目录。浏览器中的 DOM 解析脚本、淘宝用户脚本以及导出 HTML 中的 JavaScript 属于网页资源，不是 Node 执行依赖。迁移前主说明保存在 `legacy/web_ui/README.before-python.md`，便于核对原来的功能说明和上游来源。
+
+## 验证
+
+测试使用合成聊天、模拟平台响应、临时目录与无账号浏览器页面，不读取真实聊天或执行签到。
+
+```powershell
+.venv\Scripts\python.exe -m unittest discover -s tests -v
+.venv\Scripts\python.exe main.py --check
+```
+
+仅用于本人账号备份与个人任务管理。平台登录、活动与任务开放情况以官方客户端为准。

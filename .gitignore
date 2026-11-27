@@ -15,3 +15,8 @@ _tmp_*.py
 
 # 会话临时产物（probe/实验脚本与抓包文件）
 /_*
+
+# Independent Python module CLI data and retired frontend dependencies
+modules/*/data/
+.qoder-input-images/
+legacy/**/node_modules/

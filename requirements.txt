@@ -1,7 +1,9 @@
 fastapi>=0.110
 uvicorn>=0.29
+PySide6>=6.6
 playwright>=1.45
-apscheduler>=3.10
+pycryptodome
+apscheduler>=3.10,<4
 cryptography
 httpx
 pillow

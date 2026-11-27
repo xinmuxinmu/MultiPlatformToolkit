@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from modules.signin import core
 
-UI_PATH = Path(__file__).resolve().parent / "ui.html"
+UI_PATH = Path(__file__).resolve().parents[2] / "legacy" / "web_ui" / "modules" / "signin" / "ui.html"
 
 router = APIRouter(prefix="/signin")
 

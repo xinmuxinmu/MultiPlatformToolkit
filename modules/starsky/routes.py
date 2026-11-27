@@ -1,6 +1,7 @@
 import os
 import re
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -10,10 +11,10 @@ from fastapi.responses import FileResponse, JSONResponse
 
 HOME = Path(os.environ.get("STARSKY_HOME") or Path(__file__).resolve().parent / "data")
 SCRIPTS = Path(__file__).resolve().parent / "scripts"
-PS1 = SCRIPTS / "StarSky签到.ps1"
+PYTHON_SCRIPT = SCRIPTS / "checkin.py"
 INI = HOME / "设置.ini"
 LOG = HOME / "日志" / "签到日志.txt"
-UI_PATH = Path(__file__).resolve().parent / "static" / "index.html"
+UI_PATH = Path(__file__).resolve().parents[2] / "legacy" / "web_ui" / "modules" / "starsky" / "ui.html"
 
 TASK_NAME = "StarSky自动签到"
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
@@ -115,66 +116,12 @@ def _run_quiet(cmd: list[str], timeout: int = 15) -> tuple[int, str]:
         return -1, str(exc)
 
 
-def _ps_quote(text: str) -> str:
-    return "'" + str(text).replace("'", "''") + "'"
-
-
-def _schtasks_elevated(args: list[str], timeout: int = 180) -> tuple[int, str]:
-    """通过 UAC 提权执行 schtasks（/RL HIGHEST 建任务必须管理员）。"""
-    tmp = HOME / "_elevated"
-    tmp.mkdir(parents=True, exist_ok=True)
-    stamp = f"{os.getpid()}_{int(time.time() * 1000)}"
-    script = tmp / f"schtasks_{stamp}.ps1"
-    result = tmp / f"schtasks_{stamp}.txt"
-    calls = " ".join(_ps_quote(a) for a in args)
-    script.write_text(
-        "$ErrorActionPreference = 'Continue'\n"
-        f"$out = & schtasks.exe {calls} 2>&1 | Out-String\n"
-        f"[IO.File]::WriteAllText({_ps_quote(str(result))}, $out, [Text.UTF8Encoding]::new($false))\n"
-        "exit $LASTEXITCODE\n",
-        encoding="utf-8-sig",
-    )
-    inner = (
-        '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden '
-        f'-File "{script}"'
-    )
-    cmd = (
-        "try { $p = Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -PassThru "
-        f"-ArgumentList {_ps_quote(inner)}; exit $p.ExitCode }} "
-        "catch { exit 1223 }"
-    )
-    code = -1
-    try:
-        p = subprocess.run(
-            ["powershell.exe", "-NoProfile", "-Command", cmd],
-            capture_output=True,
-            timeout=timeout,
-            creationflags=CREATE_NO_WINDOW,
-        )
-        code = p.returncode
-    except subprocess.TimeoutExpired:
-        code = -1
-    except Exception:  # noqa: BLE001
-        code = -1
-    text = ""
-    try:
-        if result.exists():
-            text = result.read_text(encoding="utf-8", errors="replace").strip()
-    except OSError:
-        pass
-    for f in (script, result):
-        try:
-            f.unlink()
-        except OSError:
-            pass
-    return code, text
-
-
 def _run_schtasks(args: list[str], timeout: int = 30) -> tuple[int, str]:
-    """建/删任务：管理员直接执行，普通权限自动走 UAC 提权。"""
+    """通过 Win32 ShellExecuteEx 申请管理员权限，无 PowerShell 运行依赖。"""
     if _is_admin():
-        return _run_quiet(["schtasks"] + args, timeout=timeout)
-    return _schtasks_elevated(args)
+        return _run_quiet(["schtasks.exe"] + args, timeout=timeout)
+    from .core import run_elevated
+    return run_elevated("schtasks.exe", args, timeout=timeout)
 
 
 def _task_info() -> dict:
@@ -194,7 +141,10 @@ def _task_info() -> dict:
         k, v = k.strip(), v.strip()
         if k in keep:
             info[k] = v
-    return {"exists": True, "info": info, "error": ""}
+    legacy = "powershell" in text.lower() or ".ps1" in text.lower()
+    return {"exists": True, "info": info,
+            "legacy": legacy,
+            "error": "旧计划任务仍指向 PowerShell，请重新保存每日签到时间以迁移到 Python" if legacy else ""}
 
 
 def _log_tail(limit: int = 200) -> list[str]:
@@ -237,21 +187,13 @@ def _monitor_task(started: float) -> None:
 
 
 def _start_direct() -> tuple[bool, str]:
-    if not PS1.exists():
-        return False, f"找不到脚本：{PS1}"
+    if not PYTHON_SCRIPT.exists():
+        return False, f"找不到脚本：{PYTHON_SCRIPT}"
     env = os.environ.copy()
     env["STARSKY_HOME"] = str(HOME)
     try:
         proc = subprocess.Popen(
-            [
-                "powershell.exe",
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                str(PS1),
-                "-Quiet",
-            ],
+            [sys.executable, "-u", str(PYTHON_SCRIPT), "--quiet", "--home", str(HOME)],
             cwd=str(SCRIPTS),
             env=env,
             stdout=subprocess.DEVNULL,
@@ -329,7 +271,7 @@ def run():
         if _state["running"]:
             return JSONResponse({"ok": False, "error": "已有签到任务在进行中"}, status_code=409)
     info = _task_info()
-    if info.get("exists"):
+    if info.get("exists") and not info.get("legacy"):
         code, out = _run_quiet(["schtasks", "/Run", "/TN", TASK_NAME], timeout=20)
         if code != 0:
             return JSONResponse({"ok": False, "error": out or "计划任务启动失败"}, status_code=500)
@@ -349,7 +291,7 @@ def run():
             return JSONResponse({"ok": False, "error": err}, status_code=500)
         return {
             "ok": True,
-            "via": "uac",
+            "via": "direct",
             "note": "已发起提权，请在桌面确认 UAC 弹窗；签到期间会抢占鼠标和前台窗口",
         }
     ok, err = _start_direct()
@@ -379,12 +321,9 @@ def create_schedule(body: dict):
     at = str(body.get("time") or "").strip()
     if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", at):
         return JSONResponse({"ok": False, "error": "时间格式应为 HH:MM"}, status_code=400)
-    if not PS1.exists():
-        return JSONResponse({"ok": False, "error": f"找不到脚本：{PS1}"}, status_code=500)
-    tr = (
-        "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden "
-        f'-File "{PS1}" -Quiet'
-    )
+    if not PYTHON_SCRIPT.exists():
+        return JSONResponse({"ok": False, "error": f"找不到脚本：{PYTHON_SCRIPT}"}, status_code=500)
+    tr = subprocess.list2cmdline([sys.executable, str(PYTHON_SCRIPT), "--quiet", "--home", str(HOME)])
     code, out = _run_schtasks(
         [
             "/Create",

@@ -22,6 +22,9 @@ from modules.netease_fans.routes import router as netease_fans_router  # noqa: E
 from modules.kugou.routes import router as kugou_router  # noqa: E402
 from modules.qq_tasks.routes import router as qq_tasks_router  # noqa: E402
 from modules.bilibili_vip.routes import router as bili_vip_router  # noqa: E402
+from modules.ai_checkin.routes import router as ai_checkin_router  # noqa: E402
+from modules.heybox.routes import router as heybox_router  # noqa: E402
+from modules.douyin_fans.routes import router as douyin_fans_router  # noqa: E402
 
 
 @asynccontextmanager
@@ -49,26 +52,46 @@ async def lifespan(_app: FastAPI):
     spark_accounts.migrate_legacy_data()
     spark_accounts.apply_active_account()
 
-    await restore_schedule_on_startup()
+    import os
+    from modules.ai_checkin import core as ai_core
+    schedules_enabled = os.environ.get("APP_DISABLE_SCHEDULES") != "1"
+    if schedules_enabled:
+        await restore_schedule_on_startup()
+        ai_core.start_scheduler()
     try:
         yield
     finally:
+        ai_core.stop_scheduler()
         await shutdown_background_tasks()
 
 
-app = FastAPI(title="多平台聊天记录导出及签到续火花", lifespan=lifespan)
+app = FastAPI(title="MultiPlatformToolkit · Python Service", lifespan=lifespan)
 app.include_router(signin_router)
 app.include_router(netease_fans_router)
 app.include_router(kugou_router)
 app.include_router(qq_tasks_router)
 app.include_router(bili_vip_router)
+app.include_router(ai_checkin_router)
+app.include_router(heybox_router)
+app.include_router(douyin_fans_router)
 app.include_router(weibo_chat_router)
 app.include_router(starsky_router)
 app.mount("/douyin-chat", douyin_chat_app)
 app.mount("/spark", spark_app)
 app.include_router(taobao_chat_router)
 app.include_router(bili_chat_router)
-app.mount("/shared", StaticFiles(directory=str(ROOT / "app" / "static")), name="shared")
+app.mount("/shared", StaticFiles(directory=str(ROOT / "legacy" / "web_ui" / "shared")), name="shared")
+
+
+@app.get("/api/desktop/health")
+def desktop_health():
+    return {"app": "MultiPlatformToolkit", "architecture": "python-native", "version": "2.0.0"}
+
+
+@app.get("/api/desktop/catalog")
+def desktop_catalog():
+    from app.desktop.catalog import api_catalog
+    return api_catalog(("", app), ("/douyin-chat", douyin_chat_app), ("/spark", spark_app))
 
 
 @app.get("/api/ui/settings")
@@ -119,4 +142,4 @@ def douyin_page():
 
 @app.get("/", include_in_schema=False)
 def shell():
-    return FileResponse(SHELL_DIR / "index.html", headers=_NO_STORE)
+    return {**desktop_health(), "message": "请运行 python main.py 打开原生桌面界面", "api_docs": "/docs"}

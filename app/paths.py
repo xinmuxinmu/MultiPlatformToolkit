@@ -2,7 +2,8 @@ import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SHELL_DIR = ROOT / "app" / "shell"
+LEGACY_WEB_DIR = ROOT / "legacy" / "web_ui"
+SHELL_DIR = LEGACY_WEB_DIR / "shell"
 
 DATA_ROOT = Path(os.environ.get("APP_DATA_DIR") or (ROOT / "data")).resolve()
 SIGNIN_HOME = DATA_ROOT / "signin"
@@ -41,6 +42,14 @@ os.environ.setdefault("BILI_CHAT_PROFILE", str(BILI_CHAT_HOME / "profile"))
 STARSKY_HOME = DATA_ROOT / "starsky"
 STARSKY_HOME.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("STARSKY_HOME", str(STARSKY_HOME))
+
+# AI 办公平台签到（Trae / Qoder / WorkBuddy / 豆包 …）：配置、auths 凭据、豆包数据都在这里
+AI_CHECKIN_HOME = DATA_ROOT / "ai_checkin"
+AI_CHECKIN_HOME.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("AI_CHECKIN_HOME", str(AI_CHECKIN_HOME))
+os.environ.setdefault("WB_AUTHS_DIR", str(AI_CHECKIN_HOME / "auths"))
+os.environ.setdefault("DOUBAO_CHECKIN_HOME", str(AI_CHECKIN_HOME / "doubao"))
+os.environ.setdefault("QODER_SESSION_FILE", str(AI_CHECKIN_HOME / "qoder_session.json"))
 
 HOST = os.environ.get("APP_HOST") or "127.0.0.1"
 PORT = int(os.environ.get("APP_PORT") or 18000)

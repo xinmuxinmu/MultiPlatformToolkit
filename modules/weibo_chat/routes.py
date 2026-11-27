@@ -3,6 +3,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -14,7 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
 HOME = Path(os.environ.get("WEIBO_CHAT_HOME") or Path(__file__).resolve().parent / "data")
-UI_PATH = Path(__file__).resolve().parent / "static" / "index.html"
+UI_PATH = Path(__file__).resolve().parents[2] / "legacy" / "web_ui" / "modules" / "weibo_chat" / "ui.html"
 TOOL_DIR = Path(__file__).resolve().parent / "tool"
 RUN_LOG = HOME / "run.log"
 EXPORT_HTML = "微博聊天记录.html"
@@ -188,12 +189,19 @@ def _rotate_log() -> None:
         pass
 
 
-def _node() -> str | None:
-    return shutil.which("node")
+def _python() -> str:
+    return sys.executable
+
+
+def _playwright_ready() -> bool:
+    import importlib.util
+    return importlib.util.find_spec("playwright") is not None
 
 
 def _env() -> dict:
     env = os.environ.copy()
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
     env["WEIBO_CHAT_HOME"] = str(HOME)
     env["WEIBO_CHAT_OUT"] = str(_out())
     env["WEIBO_CHAT_STATE"] = str(_state_file())
@@ -223,11 +231,9 @@ def _reader(proc: subprocess.Popen) -> None:
 
 
 def _start(args: list[str], kind: str) -> tuple[bool, str]:
-    node = _node()
-    if not node:
-        return False, "未找到 Node.js，请先安装 Node 16 以上版本"
-    if not (TOOL_DIR / "node_modules" / "playwright-core").exists():
-        return False, "缺少 playwright-core，请在 modules/weibo_chat/tool 下执行 npm install"
+    python = _python()
+    if not _playwright_ready():
+        return False, "缺少 Python playwright，请执行 python -m pip install -r requirements.txt"
 
     _account_cache.update(ts=0.0, data=None)
     with _lock:
@@ -239,7 +245,7 @@ def _start(args: list[str], kind: str) -> tuple[bool, str]:
         _state["exit_code"] = None
         _state["stop_requested"] = False
 
-    cmd = [node, "export.js", *args]
+    cmd = [python, "-u", "export.py", *args]
     _append(f"$ {' '.join(cmd[1:])}")
     try:
         proc = subprocess.Popen(
@@ -325,7 +331,8 @@ def _task() -> dict:
             "exit_code": _state["exit_code"],
             "stop_requested": _state["stop_requested"],
             "seq": _seq,
-            "node": bool(_node()),
+            "python": True,
+            "playwright": _playwright_ready(),
         }
 
 
@@ -382,7 +389,8 @@ def logs(since: int = 0):
                 "kind": _state["kind"],
                 "exit_code": _state["exit_code"],
                 "seq": _seq,
-                "node": bool(_node()),
+                "python": True,
+                "playwright": _playwright_ready(),
             },
         }
 
@@ -398,16 +406,16 @@ def account():
     if _account_cache["data"] and now - _account_cache["ts"] < 15:
         return {"ok": True, **_account_cache["data"], "cached": True}
 
-    node = _node()
-    if not node:
-        return {"ok": False, "error": "未找到 Node.js"}
+    python = _python()
+    if not _playwright_ready():
+        return {"ok": False, "error": "未安装 Python playwright"}
     if not _state_file().exists():
         return {"ok": True, "logged_in": False, "name": "", "uid": "", "note": "还没有保存登录态"}
 
     with _account_lock:
         try:
             proc = subprocess.run(
-                [node, "export.js", "--status"],
+                [python, "-u", "export.py", "--status"],
                 cwd=str(TOOL_DIR),
                 capture_output=True,
                 text=True,

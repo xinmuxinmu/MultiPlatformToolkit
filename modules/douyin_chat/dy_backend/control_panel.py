@@ -22,9 +22,12 @@ control_router = APIRouter(prefix="/panel")
 
 # The panel single-page app lives in backend/panel/static/panel.html and is
 # loaded once at import; panel_page() serves it verbatim.
-_PANEL_HTML_PATH = os.path.join(os.path.dirname(__file__), "panel", "static", "panel.html")
-with open(_PANEL_HTML_PATH, encoding="utf-8") as _f:
-    PANEL_HTML = _f.read()
+_PANEL_HTML_PATH = os.path.abspath(os.path.join(paths.REPO_ROOT, "..", "..", "legacy", "web_ui", "douyin_panel.html"))
+# Optional compatibility page; native API startup does not depend on archived UI files.
+PANEL_HTML = "<html><meta charset=\"utf-8\"><body>请运行 python main.py 使用原生桌面界面。</body></html>"
+if os.path.isfile(_PANEL_HTML_PATH):
+    with open(_PANEL_HTML_PATH, encoding="utf-8") as _f:
+        PANEL_HTML = _f.read()
 
 
 # ── Persistent config (data/panel_config.json) — implemented in common.config ──

@@ -7,7 +7,7 @@
 ## 特性
 
 - **扫码登录**：弹出浏览器窗口用微博 App 扫码，登录态保存在本地，之后不用再扫
-- **增量导出**：只拉各会话的新消息，历史记录自动合并，已下载的媒体不重复下，一般 20 秒左右
+- **增量导出**：只拉各会话的新消息，历史记录自动合并，已下载的媒体不重复下
 - **全量导出**：重新拉全部消息
 - **媒体本地化**：图片、语音、视频、头像全部落到本地目录，不再依赖微博服务器
 - **离线浏览页**：左侧会话列表 + 右侧气泡对话，顶部可全文搜索，可按会话导出 txt
@@ -18,20 +18,18 @@
 
 | 项目 | 要求 |
 | --- | --- |
-| 系统 | Windows（图形界面依赖 PowerShell + WinForms） |
-| Node.js | 16 及以上 |
-| 浏览器 | 本机装有 Chrome 或 Edge（用于登录和抓取） |
+| Python | 3.10 及以上，安装根目录 `requirements.txt` |
+| 浏览器 | 本机 Chrome / Edge，或 `python -m playwright install chromium` |
 | 可选 | ffmpeg（语音转 mp3 时需要，没有则只保留原始 `.amr`） |
 
 ## 快速开始
 
 ```bash
-git clone https://github.com/xinmuxinmu/weibo-chat-export.git
-cd weibo-chat-export
-npm install
+python -m pip install -r requirements.txt
+python main.py
 ```
 
-然后双击 **`工具/启动工具.bat`** 打开图形界面：
+在统一应用中选择「微博聊天」：
 
 1. 点「扫码登录」，用微博 App 扫码
 2. 选增量或全量导出，点「开始导出」
@@ -40,18 +38,19 @@ npm install
 ## 命令行用法（可选）
 
 ```bat
-node 工具/export.js                  :: 增量导出
-node 工具/export.js --mode=full      :: 全量导出
-node 工具/export.js --max-group=20000
-node 工具/export.js --login          :: 只登录
-node 工具/export.js --status         :: 查询登录状态
-node 工具/export.js --logout         :: 清除登录态
+python modules/weibo_chat/tool/export.py                    :: 增量导出
+python modules/weibo_chat/tool/export.py --mode=full        :: 全量导出
+python modules/weibo_chat/tool/export.py --max-group=20000
+python modules/weibo_chat/tool/export.py --only-uid=123456  :: 只更新指定会话
+python modules/weibo_chat/tool/export.py --login            :: 只登录
+python modules/weibo_chat/tool/export.py --status           :: JSON 登录状态
+python modules/weibo_chat/tool/export.py --logout           :: 清除登录态
 ```
 
 ## 输出结构
 
 ```
-导出数据/
+data/weibo_chat/accounts/<账号>/export/
 ├─ 微博聊天记录.html    离线浏览页
 ├─ raw.json             完整原始数据
 ├─ images/              聊天图片
@@ -64,19 +63,20 @@ node 工具/export.js --logout         :: 清除登录态
 
 > **务必注意**
 
-- `工具/state.json` 保存的是你的微博登录态（Cookie），**等同于账号凭证，不要发给任何人、不要提交到仓库**
-- `导出数据/` 是你的私人聊天记录，**默认已在 `.gitignore` 中排除**
+- `data/weibo_chat/accounts/<账号>/state.json` 保存登录态（Cookie），**等同于账号凭证，不要外发或提交到仓库**
+- `data/` 是私人数据目录，**已在 `.gitignore` 中排除**。独立 CLI 默认使用 `modules/weibo_chat/data/`，也可通过 `WEIBO_CHAT_HOME/OUT/STATE/PROFILE` 环境变量指定；统一应用会自动设置账号目录
 - 本工具只在你自己的电脑上运行，数据不上传任何第三方服务器
 - 换电脑迁移登录态时，用界面上的「导出登录态 / 导入登录态」，传完后记得删掉那个文件
 
 ## 常见问题
 
-- **提示找不到 playwright-core**：在项目根目录执行 `npm install`
-- **接口报错 / 拉不到消息**：微博接口可能改版，`工具/export.js` 里的接口地址需要跟着调整
+- **缺少 Playwright**：在运行程序所用的 Python 环境执行 `python -m pip install -r requirements.txt`
+- **找不到浏览器**：安装 Chrome / Edge，或执行 `python -m playwright install chromium`。非标准路径可设置 `CHAT_BROWSER_PATH`
+- **接口报错 / 拉不到消息**：微博接口可能改版；实现位于 `modules/chat_export/weibo.py`。拉取失败会停止本次导出，保留原 `raw.json`
 - **群聊消息不全**：粉丝群动辄上万条，默认只取最近 3000 条，可在界面调大上限（`--max-group`），耗时会相应变长
-- **想强制全量重导**：删除 `导出数据/raw.json`，增量基线即失效
+- **想强制全量重导**：使用 `--mode=full`，无需删除旧数据
 
-详细界面说明见 [使用说明.md](使用说明.md)。
+导出器完全由 Python 驱动，不需要 Node.js/npm。HTML 只用于离线浏览产物。
 
 ## 免责声明
 

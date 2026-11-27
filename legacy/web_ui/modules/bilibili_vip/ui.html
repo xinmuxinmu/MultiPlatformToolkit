@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>B站 · 大会员大积分</title>
+<script src="/shared/mp_task.js?v=1"></script>
+<link rel="stylesheet" href="/shared/mp_theme.css?v=1">
+<link rel="stylesheet" href="/shared/mp_task.css?v=1">
+<style>
+html{--task-accent:var(--mp-accent);--task-accent-fg:var(--mp-on-accent)}
+/* B 站粉，只拿来做强调色，不铺大面积背景 */
+.hero-metrics{display:flex;gap:26px;flex-wrap:wrap}
+.hero-metrics .stat .v{font-variant-numeric:tabular-nums}
+.m-group{margin-top:2px}
+.m-group-head{font-size:12px;font-weight:650;color:var(--mp-text);opacity:.55;
+  letter-spacing:.5px;margin:0 0 4px;padding-left:2px}
+/* 第二个分组起用上边线隔开，不然三个小标题各自紧贴在任务名上方容易看串 */
+.m-group + .m-group .m-group-head{margin-top:16px;padding-top:14px;
+  border-top:1px solid var(--mp-border);opacity:.75}
+.badge.warn{background:var(--mp-warn-soft);color:var(--mp-warn)}
+.badge.skip{background:var(--mp-surface3);color:var(--mp-muted)}
+.m-note{font-size:12px;color:var(--mp-muted);margin-top:3px;line-height:1.5}
+.src-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.radio-pill{display:inline-flex;align-items:center;gap:7px;padding:8px 14px;border-radius:10px;
+  border:1px solid var(--mp-border);background:var(--mp-surface2);cursor:pointer;font-size:13px}
+.radio-pill.on{border-color:var(--task-accent);background:var(--mp-accent-soft);color:var(--task-accent)}
+.radio-pill input{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1><span class="dot"></span>B站 · 大会员大积分</h1>
+      <div class="sub">每日签到、加速包与浏览任务　登录态复用「B站聊天记录」</div>
+    </div>
+    <div class="actions">
+      <button class="btn-ghost" id="btnRefresh">刷新状态</button>
+      <button class="btn-main" id="btnSave">保存</button>
+      <button class="btn-main" id="btnRun">执行任务</button>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="overview">概览</button>
+    <button class="tab" data-tab="settings">设置</button>
+  </nav>
+
+  <div id="viewOverview">
+    <div class="card">
+      <div class="empty" id="heroEmpty">还没有数据。确认已登录 B 站后，点「刷新状态」。</div>
+      <div class="hero hide" id="heroBody">
+        <div id="avatarBox"></div>
+        <div class="metric">
+          <div class="gname" id="uName">—</div>
+          <div class="gmeta" id="uMeta">—</div>
+          <div class="stats hero-metrics">
+            <div class="stat"><div class="v" id="sPoint">—</div><div class="k">大积分</div></div>
+            <div class="stat"><div class="v" id="sMonth">—</div><div class="k">本月已得</div></div>
+            <div class="stat"><div class="v" id="sExpire">—</div><div class="k">即将过期</div></div>
+            <div class="stat"><div class="v" id="sDone">—</div><div class="k">任务完成</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="panel-head">
+        <span class="t">大积分任务</span>
+        <span class="s" id="missionSummary">—</span>
+      </div>
+      <div id="missionList"><div class="empty">暂无任务数据</div></div>
+    </div>
+
+    <div class="card">
+      <div class="panel-head">
+        <span class="t">运行日志</span>
+        <span class="s" id="logStat">就绪</span>
+      </div>
+      <div class="logs" id="logs"><div class="empty">点右上角「执行任务」开始</div></div>
+    </div>
+  </div>
+
+  <div id="viewSettings" class="hide">
+    <div class="card">
+      <div class="panel-head">
+        <span class="t">登录态来源</span>
+        <span class="s">不用重复扫码</span>
+      </div>
+      <div class="src-row">
+        <label class="radio-pill on" data-src="bili_chat"><input type="radio" name="src" value="bili_chat" checked>复用 B站聊天记录账号</label>
+        <label class="radio-pill" data-src="manual"><input type="radio" name="src" value="manual">手填 Cookie</label>
+      </div>
+      <div id="accountRow" style="margin-top:14px">
+        <div class="field">
+          <label>使用哪个账号</label>
+          <select class="grow" id="bili_chat_account"></select>
+        </div>
+        <div class="note" id="accountNote">—</div>
+      </div>
+      <div id="cookieRow" class="hide" style="margin-top:14px">
+        <textarea id="cookie" placeholder="登录 bilibili.com 后 F12 → Network → nav 请求里的 Cookie 整行粘进来" spellcheck="false" style="height:88px"></textarea>
+        <div class="note">Cookie 里要有 <b>SESSDATA</b> 和 <b>bili_jct</b>，前者是登录态，后者是 csrf。</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="panel-head">
+        <span class="t">任务开关</span>
+        <span class="s">关掉的不会执行</span>
+      </div>
+      <div class="field">
+        <label>每日签到</label>
+        <input type="text" class="grow" value="签一天领 5 大积分" disabled
+               style="border:0;background:transparent;color:var(--mp-muted);padding-left:0">
+        <label class="switch"><input type="checkbox" id="sign_enable"><span></span></label>
+      </div>
+      <div class="field">
+        <label>大会员加速包</label>
+        <input type="text" class="grow" value="看过视频后 +10 经验" disabled
+               style="border:0;background:transparent;color:var(--mp-muted);padding-left:0">
+        <label class="switch"><input type="checkbox" id="express_enable"><span></span></label>
+      </div>
+      <div class="field">
+        <label>福利 / 体验任务</label>
+        <input type="text" class="grow" value="一次性，各 +10" disabled
+               style="border:0;background:transparent;color:var(--mp-muted);padding-left:0">
+        <label class="switch"><input type="checkbox" id="bonus_enable"><span></span></label>
+      </div>
+      <div class="field">
+        <label>浏览类日常</label>
+        <input type="text" class="grow" value="追番 / 影视 / 会员购" disabled
+               style="border:0;background:transparent;color:var(--mp-muted);padding-left:0">
+        <label class="switch"><input type="checkbox" id="view_enable"><span></span></label>
+      </div>
+      <div class="field">
+        <label>装扮商城主页</label>
+        <input type="text" class="grow" value="接口走不通，多半会跳过" disabled
+               style="border:0;background:transparent;color:var(--mp-muted);padding-left:0">
+        <label class="switch"><input type="checkbox" id="dress_enable"><span></span></label>
+      </div>
+      <div class="field">
+        <label>观看剧集内容</label>
+        <input type="text" class="grow" value="要真看 10 分钟，开了也没法真完成" disabled
+               style="border:0;background:transparent;color:var(--mp-muted);padding-left:0">
+        <label class="switch"><input type="checkbox" id="ogv_enable"><span></span></label>
+      </div>
+      <div class="note">
+        购买类任务（影片 / 会员购 / 装扮 / 线下门店）要真金白银，程序一律不碰。
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="panel-head">
+        <span class="t">节奏</span>
+        <span class="s">间隔越短越像脚本</span>
+      </div>
+      <div class="field">
+        <label>任务间隔（秒）</label>
+        <input type="number" class="grow" id="gap_min" min="0.5" step="0.5">
+        <span style="color:var(--mp-muted);font-size:13px">到</span>
+        <input type="number" class="grow" id="gap_max" min="0.5" step="0.5">
+      </div>
+      <div class="field">
+        <label>浏览等待（秒）</label>
+        <input type="number" class="grow" id="view_wait" min="1" step="1">
+      </div>
+      <div class="note">浏览类任务服务端只认上报，本地等够时间再报，跟手点效果一样。</div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = '/bili-vip/api';
+const EMBED = /[?&]embed=1/.test(location.search);
+if (EMBED) document.body.classList.add('embed');
+
+const TEXT_IDS = ['cookie', 'cookie_source', 'bili_chat_account'];
+const NUM_IDS = ['gap_min', 'gap_max', 'view_wait'];
+const BOOL_IDS = ['sign_enable', 'express_enable', 'bonus_enable',
+                  'view_enable', 'dress_enable', 'ogv_enable'];
+
+let state = {config: {}};
+let since = 0, polling = null, running = false;
+
+const $ = id => document.getElementById(id);
+
+function esc(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function toast(msg, kind){
+  const el = $('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (kind ? ' ' + kind : '');
+  setTimeout(() => { el.className = 'toast' + (kind ? ' ' + kind : ''); }, 2400);
+}
+
+function setTab(name){
+  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x.dataset.tab === name));
+  $('viewOverview').classList.toggle('hide', name !== 'overview');
+  $('viewSettings').classList.toggle('hide', name !== 'settings');
+  try { history.replaceState(null, '', location.pathname + location.search + '#' + name); } catch(e) {}
+}
+document.querySelectorAll('.tab').forEach(b => { b.onclick = () => setTab(b.dataset.tab); });
+setTab((location.hash || '').replace('#', '') === 'settings' ? 'settings' : 'overview');
+
+function setSource(src){
+  document.querySelectorAll('.radio-pill').forEach(x =>
+    x.classList.toggle('on', x.dataset.src === src));
+  document.querySelectorAll('input[name=src]').forEach(r => { r.checked = r.value === src; });
+  $('accountRow').classList.toggle('hide', src !== 'bili_chat');
+  $('cookieRow').classList.toggle('hide', src !== 'manual');
+}
+document.querySelectorAll('.radio-pill').forEach(el => {
+  el.onclick = () => setSource(el.dataset.src);
+});
+
+function fillAccounts(accounts){
+  const sel = $('bili_chat_account');
+  const cur = (state.config || {}).bili_chat_account || '';
+  sel.innerHTML = '<option value="">（自动：当前激活的账号）</option>' + (accounts || []).map(a =>
+    `<option value="${esc(a.id)}">${esc(a.nickname || a.name)}${a.uid ? ' · ' + esc(a.uid) : ''}${a.active ? '（当前）' : ''}</option>`
+  ).join('');
+  sel.value = cur;
+  const box = $('accountNote');
+  if (!accounts || !accounts.length){
+    box.innerHTML = '还没检测到 B 站登录态，先去左侧「B站聊天记录」页扫码登录。';
+  }else{
+    const act = accounts.find(a => a.id === (cur || '')) ||
+                accounts.find(a => a.active) || accounts[0];
+    box.innerHTML = `已登录：<b>${esc(act.nickname || act.name)}</b>${act.uid ? '（UID ' + esc(act.uid) + '）' : ''}`;
+  }
+}
+
+function fillForm(cfg){
+  TEXT_IDS.forEach(k => { if ($(k) && k !== 'cookie_source') $(k).value = cfg[k] == null ? '' : cfg[k]; });
+  NUM_IDS.forEach(k => { if ($(k)) $(k).value = cfg[k] == null ? '' : cfg[k]; });
+  BOOL_IDS.forEach(k => { if ($(k)) $(k).checked = !!cfg[k]; });
+  setSource(cfg.cookie_source === 'manual' ? 'manual' : 'bili_chat');
+}
+
+function renderHero(s){
+  if (!s || (s.point == null && !s.nickname)){ $('heroBody').classList.add('hide'); return; }
+  $('heroEmpty').classList.add('hide');
+  $('heroBody').classList.remove('hide');
+  const box = $('avatarBox');
+  if (s.avatar) box.innerHTML = `<img class="avatar" alt="" src="${esc(s.avatar)}" referrerpolicy="no-referrer">`;
+  else box.innerHTML = `<div class="avatar-fb">${esc((s.nickname || '?').slice(0,1))}</div>`;
+  $('uName').textContent = s.nickname || '—';
+  $('uMeta').textContent = (s.uid ? 'UID ' + s.uid : '') +
+    (s.vip_type === 2 ? '　年度大会员' : (s.vip_type === 1 ? '　大会员' : ''));
+  $('sPoint').textContent = s.point == null ? '—' : s.point;
+  $('sMonth').textContent = (s.score_month == null ? '—' : s.score_month) +
+    (s.score_limit ? ' / ' + s.score_limit : '');
+  $('sExpire').textContent = s.expire_point == null ? '—' :
+    (s.expire_days != null ? `${s.expire_point}（${s.expire_days}天）` : s.expire_point);
+  const tasks = s.tasks || [];
+  const done = tasks.filter(t => t.done).length;
+  $('sDone').textContent = tasks.length ? `${done}/${tasks.length}` : '—';
+}
+
+function badgeFor(t){
+  if (t.done) return ['badge ok', '已完成'];
+  if (t.paid) return ['badge skip', '需付费'];
+  if (t.state === 1) return ['badge wait', '待完成'];
+  return ['badge warn', '未领取'];
+}
+
+function renderMissions(list){
+  const el = $('missionList');
+  if (!list || !list.length){
+    el.innerHTML = '<div class="empty">暂无任务数据</div>';
+    $('missionSummary').textContent = '—';
+    return;
+  }
+  const groups = [];
+  list.forEach(t => {
+    let g = groups.find(x => x.name === (t.module || '其他'));
+    if (!g){ g = {name: t.module || '其他', items: []}; groups.push(g); }
+    g.items.push(t);
+  });
+  el.innerHTML = groups.map(g => `
+    <div class="m-group">
+      <div class="m-group-head">${esc(g.name)}</div>
+      ${g.items.map(t => {
+        const [cls, txt] = badgeFor(t);
+        const note = t.paid ? '<div class="m-note">这条要花钱，程序不碰</div>'
+          : (t.code === 'dress-view' && !t.done ? '<div class="m-note">接口走不通，需手动打开装扮商城</div>' : '')
+          + (t.code === 'ogvwatchnew' && !t.done ? '<div class="m-note">要真实播放满 10 分钟</div>' : '');
+        return `<div class="mission">
+          <div class="m-body">
+            <div class="m-title">${esc(t.title)}</div>
+            ${note}
+          </div>
+          <span class="${cls}">${esc(txt)}</span>
+        </div>`;
+      }).join('')}
+    </div>`).join('');
+  const done = list.filter(t => t.done).length;
+  $('missionSummary').textContent = `${done}/${list.length} 已完成`;
+}
+
+function applyState(s){
+  if (!s) return;
+  renderHero(s);
+  renderMissions(s.tasks || []);
+}
+
+function collectForm(){
+  const out = {};
+  TEXT_IDS.forEach(k => { if ($(k) && k !== 'cookie_source') out[k] = $(k).value.trim(); });
+  NUM_IDS.forEach(k => { if ($(k)) out[k] = parseFloat($(k).value) || 0; });
+  BOOL_IDS.forEach(k => { if ($(k)) out[k] = $(k).checked; });
+  const picked = document.querySelector('input[name=src]:checked');
+  out.cookie_source = picked ? picked.value : 'bili_chat';
+  return out;
+}
+
+async function saveAll(silent){
+  const body = collectForm();
+  try{
+    const r = await fetch(API + '/save', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || '保存失败');
+    state.config = Object.assign(state.config || {}, body);
+    if (!silent) toast('已保存', 'ok');
+    return true;
+  }catch(e){
+    toast(e.message || '保存失败', 'err');
+    return false;
+  }
+}
+
+async function refresh(){
+  const btn = $('btnRefresh');
+  btn.disabled = true;
+  btn.textContent = '刷新中…';
+  try{
+    await saveAll(true);
+    const r = await fetch(API + '/refresh', {method: 'POST'});
+    const d = await r.json();
+    if (!d.ok){ toast(d.error || '刷新失败', 'err'); return; }
+    applyState(d.state);
+    toast('已更新', 'ok');
+  }catch(e){
+    toast('刷新失败：程序可能已经退出', 'err');
+  }finally{
+    btn.disabled = false;
+    btn.textContent = '刷新状态';
+  }
+}
+
+function addLogs(items){
+  if (!items.length) return;
+  const box = $('logs');
+  if (box.querySelector('.empty')) box.innerHTML = '';
+  items.forEach(x => {
+    const div = document.createElement('div');
+    div.className = 'line ' + (x.l || '');
+    div.innerHTML = `<span class="tm">${esc(x.t)}</span><span>${esc(x.m)}</span>`;
+    box.appendChild(div);
+    since = Math.max(since, x.id || 0);
+  });
+  box.scrollTop = box.scrollHeight;
+}
+
+async function poll(){
+  if (!running) return;
+  try{
+    const r = await fetch(API + '/logs?since=' + since);
+    const d = await r.json();
+    addLogs(d.logs || []);
+    running = d.running;
+    $('logStat').textContent = d.running ? '运行中…' : '已结束';
+    if (!d.running){
+      $('btnRun').disabled = false;
+      $('btnRun').textContent = '执行任务';
+      clearInterval(polling); polling = null;
+      setTimeout(refresh, 600);
+    }
+  }catch(e){ /* 下一轮再试 */ }
+}
+
+async function run(){
+  const ok = await saveAll(true);
+  if (!ok) return;
+  since = 0;
+  $('logs').innerHTML = '<div class="empty">正在启动…</div>';
+  $('btnRun').disabled = true;
+  $('btnRun').textContent = '执行中…';
+  try{
+    const r = await fetch(API + '/run', {method: 'POST'});
+    const d = await r.json();
+    if (!d.ok){
+      toast(d.error || '启动失败', 'err');
+      $('btnRun').disabled = false;
+      $('btnRun').textContent = '执行任务';
+      return;
+    }
+    running = true;
+    $('logStat').textContent = '运行中…';
+    if (!polling) polling = setInterval(poll, 900);
+  }catch(e){
+    toast('启动失败：程序可能已经退出', 'err');
+    $('btnRun').disabled = false;
+    $('btnRun').textContent = '执行任务';
+  }
+}
+
+$('btnSave').onclick = () => saveAll(false);
+$('btnRefresh').onclick = refresh;
+$('btnRun').onclick = run;
+
+(async () => {
+  try{
+    const r = await fetch(API + '/state');
+    const d = await r.json();
+    state = d;
+    fillForm(d.config || {});
+    fillAccounts(d.accounts || []);
+    applyState(d.cached);
+  }catch(e){
+    toast('读不到配置，程序可能还没起来', 'err');
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,119 @@
+/* 主题变量（所有模块页面共用）
+ *
+ * 设计语言取自 D:\PythonApps\wb（wb2go 面板）：
+ *   - 双主题（亮 / 暗），绿色单强调色，近黑侧栏
+ *   - 卡片 1px 描边 + 顶部 3px 绿色条（inset shadow），圆角 8px
+ *   - 数字用等宽字体，标签用 muted 灰绿
+ *
+ * 各页面只引这个文件，变量名保持 --mp-* 不变，改配色只改这里。
+ */
+:root,
+html[data-theme="light"] {
+  --mp-bg: #f2f4f2;
+  --mp-surface: #ffffff;
+  --mp-surface2: #f6f8f6;
+  --mp-surface3: #eef1ef;
+  --mp-border: #dde3df;
+  --mp-border-strong: #bcc6c0;
+  --mp-frame: #c8d2cc;
+  --mp-text: #111613;
+  --mp-muted: #4f5b55;
+  --mp-faint: #7d8983;
+  --mp-accent: #15803d;
+  --mp-accent-strong: #116a32;
+  --mp-accent-soft: #e7f5ec;
+  --mp-accent-line: #9fd5b2;
+  --mp-on-accent: #ffffff;
+  --mp-edge: #16a34a;
+  --mp-input: #fbfcfb;
+  --mp-danger: #c0262d;
+  --mp-danger-soft: #fdebec;
+  --mp-ok: #15803d;
+  --mp-ok-soft: #e7f5ec;
+  --mp-warn: #a35200;
+  --mp-warn-soft: #fdf1e1;
+  --mp-cool: #1d4ed8;
+  --mp-cool-soft: #e8effd;
+  --mp-shadow: 0 1px 2px rgba(10, 20, 14, .06);
+  --mp-shadow-lift: 0 10px 28px rgba(10, 20, 14, .14);
+  --mp-scroll: #c3ccc6;
+  --mp-log-bg: #f6f8f6;
+  --mp-log-border: #dde3df;
+  --mp-log-text: #24312a;
+  --mp-radius: 8px;
+  --mp-radius-sm: 6px;
+  --mp-mono: "JetBrains Mono", "SF Mono", Consolas, "Courier New", monospace;
+  color-scheme: light;
+}
+
+html[data-theme="dark"] {
+  --mp-bg: #090c0b;
+  --mp-surface: #101513;
+  --mp-surface2: #151c18;
+  --mp-surface3: #1a231d;
+  --mp-border: #222d27;
+  --mp-border-strong: #33433a;
+  --mp-frame: #1f6b40;
+  --mp-text: #e3ece6;
+  --mp-muted: #9aaca2;
+  --mp-faint: #6c7d74;
+  --mp-accent: #22c55e;
+  --mp-accent-strong: #4ade80;
+  --mp-accent-soft: #10251a;
+  --mp-accent-line: #1f6b40;
+  --mp-on-accent: #04130a;
+  --mp-edge: #22c55e;
+  --mp-input: #0b100d;
+  --mp-danger: #f2777d;
+  --mp-danger-soft: #2a1214;
+  --mp-ok: #22c55e;
+  --mp-ok-soft: #10251a;
+  --mp-warn: #f0b46a;
+  --mp-warn-soft: #2a1d0d;
+  --mp-cool: #7aa2f7;
+  --mp-cool-soft: #131c33;
+  --mp-shadow: 0 1px 2px rgba(0, 0, 0, .4);
+  --mp-shadow-lift: 0 12px 32px rgba(0, 0, 0, .55);
+  --mp-scroll: #2c3a32;
+  --mp-log-bg: #0b100d;
+  --mp-log-border: #222d27;
+  --mp-log-text: #c6d4cb;
+  color-scheme: dark;
+}
+
+/* 老主题名（蓝色 / 紫色）已经并入暗色，避免旧 localStorage 落到无变量状态 */
+html[data-theme="ocean"],
+html[data-theme="purple"] {
+  --mp-bg: #090c0b;
+  --mp-surface: #101513;
+  --mp-surface2: #151c18;
+  --mp-surface3: #1a231d;
+  --mp-border: #222d27;
+  --mp-border-strong: #33433a;
+  --mp-frame: #1f6b40;
+  --mp-text: #e3ece6;
+  --mp-muted: #9aaca2;
+  --mp-faint: #6c7d74;
+  --mp-accent: #22c55e;
+  --mp-accent-strong: #4ade80;
+  --mp-accent-soft: #10251a;
+  --mp-accent-line: #1f6b40;
+  --mp-on-accent: #04130a;
+  --mp-edge: #22c55e;
+  --mp-input: #0b100d;
+  --mp-danger: #f2777d;
+  --mp-danger-soft: #2a1214;
+  --mp-ok: #22c55e;
+  --mp-ok-soft: #10251a;
+  --mp-warn: #f0b46a;
+  --mp-warn-soft: #2a1d0d;
+  --mp-cool: #7aa2f7;
+  --mp-cool-soft: #131c33;
+  --mp-shadow: 0 1px 2px rgba(0, 0, 0, .4);
+  --mp-shadow-lift: 0 12px 32px rgba(0, 0, 0, .55);
+  --mp-scroll: #2c3a32;
+  --mp-log-bg: #0b100d;
+  --mp-log-border: #222d27;
+  --mp-log-text: #c6d4cb;
+  color-scheme: dark;
+}

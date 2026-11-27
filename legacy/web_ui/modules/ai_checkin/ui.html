@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI 工具 · 一键签到</title>
+<script src="/shared/mp_task.js?v=1"></script>
+<link rel="stylesheet" href="/shared/mp_theme.css?v=1">
+<link rel="stylesheet" href="/shared/mp_task.css?v=2">
+<style>
+html{--task-accent:var(--mp-accent);--task-accent-fg:var(--mp-on-accent)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
+.card.tight{padding:16px 18px;margin:0;display:flex;flex-direction:column;gap:10px}
+.card-head{display:flex;align-items:center;gap:10px}
+.card-head .nm{font-size:15px;font-weight:650;flex:1;min-width:0}
+.desc{font-size:12.5px;color:var(--mp-muted);line-height:1.6}
+.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.row input[type=text]{flex:1;min-width:120px}
+.card-actions{display:flex;align-items:center;gap:10px;margin-top:auto}
+.card-actions .btn-main{margin-left:auto}
+.hint{font-size:11.5px;color:var(--mp-muted)}
+.hint.bad{color:var(--mp-warn)}
+.line .msg{word-break:break-word;min-width:0}
+header{position:sticky;top:0;z-index:30;background:var(--mp-bg);padding:10px 0;margin:-10px 0 14px;
+  box-shadow:0 8px 18px -16px rgba(0,0,0,.6)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1><span class="dot"></span>AI 工具签到</h1>
+      <div class="sub">Trae CN · Qoder · WorkBuddy · 豆包 · MiniMax · DuMate · LobsterAI　本地运行，凭据不出本机</div>
+    </div>
+    <div class="actions">
+      <button class="btn-ghost" id="btnKeepalive">续期登录态</button>
+      <button class="btn-ghost" id="btnSave">保存</button>
+      <button class="btn-ghost" id="btnDry">预览（不领取）</button>
+      <button class="btn-main" id="btnAll">全部签到</button>
+    </div>
+  </header>
+
+  <div class="card tight" id="schedCard" style="margin-bottom:14px">
+    <div class="row" style="flex-wrap:wrap">
+      <label class="switch"><input type="checkbox" id="schedEnabled"><span></span></label>
+      <span class="hint">每天</span>
+      <input type="text" id="schedTime" value="10:20" style="width:88px" placeholder="HH:MM">
+      <span class="hint">自动签到（应用开着时到点跑；启动晚了当天补跑一次）</span>
+      <span class="hint" id="lastRun" style="margin-left:auto">上次：—</span>
+    </div>
+  </div>
+
+  <div class="grid" id="cards"><div class="empty">正在读取配置…</div></div>
+
+  <div class="card" style="margin-top:16px" id="logCard">
+    <div class="panel-head">
+      <span class="t">运行日志</span>
+      <span class="s" id="logStat">就绪</span>
+    </div>
+    <div class="logs" id="logs"><div class="empty">点上面的「签到」开始</div></div>
+    <div class="note">
+      凭据与配置存在 <code id="cfgPath">data/ai_checkin/config.json</code>，多账号凭据在 <code>data/ai_checkin/auths</code>，
+      豆包截图和日志在 <code>data/ai_checkin/doubao</code>。
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var state = { platforms: [], clients: {}, deps: {}, config: { platforms: {} }, seq: 0, timer: 0 };
+  var $ = function (id) { return document.getElementById(id); };
+  if (location.search.indexOf('embed=1') >= 0) document.body.classList.add('embed');
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function toast(msg, kind) {
+    var el = document.createElement('div');
+    el.className = 'toast show ' + (kind || '');
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(function () { el.className = 'toast ' + (kind || ''); }, 2200);
+    setTimeout(function () { el.remove(); }, 2600);
+  }
+
+  function chip(card) {
+    return card.querySelector('.badge');
+  }
+
+  function setChip(id, text, cls) {
+    var card = document.querySelector('[data-pid="' + id + '"]');
+    if (!card) return;
+    var b = chip(card);
+    b.className = 'badge ' + (cls || '');
+    b.textContent = text;
+  }
+
+  function clientHint(p) {
+    var ok = state.clients[p.id];
+    if (ok === undefined) ok = state.clients[String(p.id).split('_')[0]];
+    if (ok === undefined) return '';
+    return ok ? '<span class="hint">已检测到客户端数据</span>'
+              : '<span class="hint bad">未检测到客户端数据，先安装并登录客户端</span>';
+  }
+
+  function render() {
+    var box = $('cards');
+    box.innerHTML = state.platforms.map(function (p) {
+      var enabled = !!state.config.platforms[p.id];
+      var cred = '';
+      if (p.cred === 'token') {
+        var key = p.id === 'qoder_cn' ? 'qoder_cn_token' : 'qoder_token';
+        var val = state.config[key] || '';
+        cred = '<div class="row"><input type="text" data-cred="' + key + '" value="' + esc(val) +
+               '" placeholder="' + (p.id === 'qoder_cn' ? 'PAT 或留空用桌面端登录态' : 'PAT（pt- 开头，可选）') + '"></div>' +
+               (p.id === 'qoder_cn'
+                 ? '<div class="row"><input type="text" data-cred="qoder_cn_cookie" value="' + esc(state.config.qoder_cn_cookie || '') +
+                   '" placeholder="Cookie（可选，留空走 PAT / 桌面端登录态）"></div>'
+                 : '');
+      }
+      return '<div class="card tight" data-pid="' + p.id + '">' +
+        '<div class="card-head"><span class="nm">' + esc(p.name) + '</span>' +
+        '<span class="badge">未运行</span></div>' +
+        '<div class="desc">' + esc(p.desc) + '</div>' +
+        '<div class="hint" data-last="' + p.id + '">上次：—</div>' +
+        cred + clientHint(p) +
+        '<div class="card-actions">' +
+          '<label class="switch"><input type="checkbox" data-toggle="' + p.id + '"' + (enabled ? ' checked' : '') +
+            '><span></span></label><span class="hint">启用</span>' +
+          '<button class="btn-main btn-sm" data-run="' + p.id + '">签到</button>' +
+        '</div></div>';
+    }).join('');
+
+    box.querySelectorAll('[data-run]').forEach(function (btn) {
+      btn.addEventListener('click', function () { run([btn.getAttribute('data-run')], false); });
+    });
+  }
+
+  function collect() {
+    var platforms = {};
+    document.querySelectorAll('[data-toggle]').forEach(function (el) {
+      platforms[el.getAttribute('data-toggle')] = el.checked;
+    });
+    var payload = { platforms: platforms, keepalive: true };
+    payload.schedule = {
+      enabled: $('schedEnabled').checked,
+      time: ($('schedTime').value || '').trim()
+    };
+    document.querySelectorAll('[data-cred]').forEach(function (el) {
+      payload[el.getAttribute('data-cred')] = el.value.trim();
+    });
+    return payload;
+  }
+
+  function load() {
+    return fetch('/ai-checkin/api/state', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        state.platforms = d.platforms || [];
+        state.clients = d.clients || {};
+        state.deps = d.deps || {};
+        state.config = d.config || { platforms: {} };
+        $('cfgPath').textContent = d.config_path || 'data/ai_checkin/config.json';
+        render();
+        var sched = d.config.schedule || {};
+        $('schedEnabled').checked = !!sched.enabled;
+        $('schedTime').value = sched.time || '10:20';
+        fillLast(d.state);
+        var miss = [];
+        if (!state.deps.playwright) miss.push('playwright');
+        if (!state.deps.crypto) miss.push('pycryptodome');
+        if (miss.length) {
+          $('logStat').textContent = '缺少依赖：' + miss.join(' / ');
+          addLog({ t: '', l: 'warn', p: '依赖', m: '缺少 ' + miss.join(' / ') + '：豆包与部分加密凭据会不可用' });
+        }
+      });
+  }
+
+  function fillLast(st) {
+    var res = (st && st.results) || {};
+    var label = { success: '成功', already: '已签', failed: '失败', skipped: '跳过' };
+    document.querySelectorAll('[data-last]').forEach(function (el) {
+      var r = res[el.getAttribute('data-last')];
+      if (!r) { el.className = 'hint'; el.textContent = '上次：—'; return; }
+      el.className = 'hint' + (r.status === 'failed' ? ' bad' : '');
+      el.textContent = '上次：' + (r.at || '') + ' · ' + (label[r.status] || r.status);
+      el.title = r.message || '';
+    });
+    $('lastRun').textContent = '上次运行：' + ((st && st.last_run_date) || '—');
+  }
+
+  function refreshState() {
+    fetch('/ai-checkin/api/state', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) { fillLast(d.state); })
+      .catch(function () {});
+  }
+
+  function save() {
+    return fetch('/ai-checkin/api/save', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(collect())
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (d.ok) { toast('已保存', 'ok'); return load(); }
+      toast(d.error || '保存失败', 'err');
+    });
+  }
+
+  function addLog(item, finish) {
+    var box = $('logs');
+    var empty = box.querySelector('.empty');
+    if (empty) empty.remove();
+    var div = document.createElement('div');
+    div.className = 'line ' + (finish ? 'finish' : (item.l || ''));
+    div.innerHTML = '<span class="tm">' + esc(item.t || '') + '</span>' +
+      (item.p ? '<span class="pn">[' + esc(item.p) + ']</span>' : '') +
+      '<span class="msg">' + esc(item.m || '') + '</span>';
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function poll() {
+    fetch('/ai-checkin/api/logs?since=' + state.seq, { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        (d.logs || []).forEach(function (item) {
+          state.seq = Math.max(state.seq, item.id);
+          addLog(item, false);
+          if (item.p && item.l !== 'info') {
+            var map = { success: ['成功', 'ok'], warn: ['跳过', 'warn'], error: ['失败', 'high'] };
+            var s = map[item.l] || ['已完成', 'wait'];
+            setChipForName(item.p, s[0], s[1]);
+          }
+        });
+        $('logStat').textContent = d.running ? '运行中…' : (d.done ? '已完成' : '就绪');
+        if (d.running) {
+          setBusy(true);
+          state.timer = setTimeout(poll, 900);
+        } else if (d.done) {
+          setBusy(false);
+          refreshState();
+          if (d.summary && d.summary.ok !== undefined) {
+            addLog({ t: '', l: 'finish', p: '', m: '完成：成功 ' + d.summary.ok + '，失败 ' + d.summary.fail + '，跳过 ' + d.summary.skip }, true);
+          }
+        }
+      })
+      .catch(function () { state.timer = setTimeout(poll, 1500); });
+  }
+
+  function setChipForName(name, text, cls) {
+    var card = state.platforms.filter(function (p) { return p.name === name; })[0];
+    if (card) setChip(card.id, text, cls);
+  }
+
+  function setBusy(busy) {
+    ['btnAll', 'btnDry', 'btnKeepalive'].forEach(function (id) { $(id).disabled = busy; });
+    document.querySelectorAll('[data-run]').forEach(function (b) { b.disabled = busy; });
+  }
+
+  function run(targets, dry) {
+    if (!targets.length) { toast('没有启用的平台', 'err'); return; }
+    setBusy(true);
+    targets.forEach(function (id) { setChip(id, '排队中', 'wait'); });
+    $('logStat').textContent = dry ? '预览中…' : '运行中…';
+    $('logCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    toast(dry ? '开始预览（不领取）' : '开始签到', 'ok');
+    fetch('/ai-checkin/api/run', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targets: targets, dry: !!dry })
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (!d.ok) {
+        setBusy(false);
+        targets.forEach(function (id) { setChip(id, '未运行', ''); });
+        toast(d.error || '启动失败', 'err');
+        return;
+      }
+      clearTimeout(state.timer);
+      poll();
+    });
+  }
+
+  function enabledIds() {
+    var ids = [];
+    document.querySelectorAll('[data-toggle]').forEach(function (el) {
+      if (el.checked) ids.push(el.getAttribute('data-toggle'));
+    });
+    return ids;
+  }
+
+  $('btnAll').addEventListener('click', function () { save().then(function () { run(enabledIds(), false); }); });
+  $('btnDry').addEventListener('click', function () { run(enabledIds(), true); });
+  $('btnSave').addEventListener('click', save);
+  $('btnKeepalive').addEventListener('click', function () {
+    fetch('/ai-checkin/api/keepalive', { method: 'POST' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.ok) { toast(d.error || '续期失败', 'err'); return; }
+        if (!d.lines.length) { toast('没有临期账号，无需续期', 'ok'); return; }
+        d.lines.forEach(function (line) { addLog({ t: '', l: 'info', p: '续期', m: line }); });
+        toast('续期完成', 'ok');
+      });
+  });
+
+  load();
+})();
+</script>
+</body>
+</html>

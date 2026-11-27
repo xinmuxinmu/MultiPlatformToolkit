@@ -24,12 +24,13 @@ import re
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
 from app.paths import DATA_ROOT
 
-VERSION = "1.3.1"
+VERSION = "1.5.0"
 APP_ID = "qq-tasks"
 
 HOME = DATA_ROOT / "qq_tasks"
@@ -51,13 +52,16 @@ DEFAULT_MUSIC = {"cookie": "", "sign_enable": True, "medal_enable": True,
                  "medal_tasks_enable": True, "medal_task_types": None,
                  "medal_selected_ids": None, "card_pool_enable": True}
 
-# 这几类任务官方客户端也是「做完动作后上报」，可以直接调上报接口；
-# 新广告、听歌、付费、游戏类会被服务端拒绝，不硬试。
-REPORT_TASK_TYPES = ("watch_ads", "share_song", "share_medal",
-                     "page_browsed", "calendar_reminder")
-AUTO_MEDAL_TASK_TYPES = (*REPORT_TASK_TYPES, "medal_praised_singer",
-                         "medal_card_draw_card")
-POOL_ID_RE = re.compile(r"[?&]pool_id=([0-9A-Za-z\-]+)")
+# 与官方勋章 H5 的跳转逻辑一致：访问成功后，只有明确声明
+# NeedReportCondition 的浏览任务才上报。广告、分享、听歌不能用空上报代替。
+REPORT_TASK_TYPES = ("page_browsed", "homepage_browsed", "comm_jump",
+                     "jump_external_app_singer")
+AUTO_MEDAL_TASK_TYPES = (*REPORT_TASK_TYPES, "medal_praised_singer")
+PAID_TYPE_RE = re.compile(
+    r"(?:^buy_|^open_.*vip|supvip|supersubscr|super_subscr|paid|payment|"
+    r"^mp_light_activity$|_light_activity_|^song_reward$|^gather_stars_|"
+    r"^fan_club_open_|^ai_dou_tao_consumption|^open_.*lightsign)", re.I)
+PAID_TITLE_RE = re.compile(r"购买|付费|付邮|充值|开通|续费|金币兑换|消耗金币|超级会员|开超会")
 
 _cfg_lock = threading.Lock()
 
@@ -82,7 +86,10 @@ def _load(path: Path, default: dict) -> dict:
 
 def _save(path: Path, cfg: dict):
     with _cfg_lock:
-        path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), "utf-8")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), "utf-8")
+        tmp.replace(path)
 
 
 def load_music() -> dict:
@@ -90,7 +97,20 @@ def load_music() -> dict:
 
 
 def save_music(cfg: dict):
-    _save(MUSIC_CONFIG, {k: cfg.get(k, v) for k, v in DEFAULT_MUSIC.items()})
+    data = {k: cfg.get(k, v) for k, v in DEFAULT_MUSIC.items()}
+    if not isinstance(data["cookie"], str):
+        raise ValueError("Cookie 必须是文本")
+    data["cookie"] = norm_cookie(data["cookie"])
+    for key in ("sign_enable", "medal_enable", "medal_tasks_enable", "card_pool_enable"):
+        if not isinstance(data[key], bool):
+            raise ValueError(f"{key} 必须是布尔值")
+    for key in ("medal_task_types", "medal_selected_ids"):
+        if data[key] is not None:
+            if not isinstance(data[key], list) or any(not isinstance(x, (str, int))
+                                                     for x in data[key]):
+                raise ValueError(f"{key} 必须是列表或 null")
+            data[key] = list(dict.fromkeys(str(x).strip() for x in data[key] if str(x).strip()))
+    _save(MUSIC_CONFIG, data)
 
 
 def load_state() -> dict:
@@ -103,7 +123,7 @@ def load_state() -> dict:
 
 def save_state(data: dict):
     try:
-        STATE_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), "utf-8")
+        _save(STATE_PATH, data)
     except OSError:
         pass
 
@@ -174,6 +194,59 @@ def _post_json(url: str, body: str, headers: dict, timeout=20) -> dict:
 
 # ---------------------------------------------------------------- QQ 音乐
 
+def _number(value, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+
+
+def _enabled(value) -> bool:
+    return value is True or str(value).lower() in ("1", "true", "yes")
+
+
+def _service_result(payload: dict) -> tuple[int, object]:
+    """缺 req/code 不能按成功处理，否则限流/登录页会变成假完成。"""
+    if "code" not in payload or _number(payload["code"], -1) != 0:
+        raise QQError(f"QQ 音乐返回错误：{payload.get('code', '缺少状态码')}")
+    req = payload.get("req_0")
+    if not isinstance(req, dict) or "code" not in req:
+        raise QQError("QQ 音乐接口返回结构异常（缺少任务响应）")
+    code = _number(req["code"], -1)
+    if code in (1000, 500003):
+        raise QQError("QQ 音乐 Cookie 已失效，请重新快捷登录")
+    return code, req.get("data")
+
+
+def _task_identity(task: dict) -> str:
+    return str(task.get("TaskID") or hashlib.sha256(
+        json.dumps([task.get("TaskType"), task.get("Title"), task.get("ExtInfoStr"),
+                    task.get("BtnJumpURL")], ensure_ascii=False).encode()).hexdigest()[:20])
+
+
+def _flatten_tasks(data: dict) -> list[dict]:
+    """兼容旧 Detail[]、当前 Detail.TaskList 和顶层 TaskList。"""
+    tasks = []
+    seen = set()
+
+    def collect(node):
+        if isinstance(node, list):
+            for item in node:
+                collect(item)
+        elif isinstance(node, dict):
+            if "TaskType" in node or "TaskID" in node:
+                key = _task_identity(node)
+                if key not in seen:
+                    tasks.append(node)
+                    seen.add(key)
+                return
+            for key in ("Detail", "TaskList"):
+                collect(node.get(key))
+
+    collect(data)
+    return tasks
+
+
 class MusicClient:
     def __init__(self, cookie: str):
         self.cookie = norm_cookie(cookie)
@@ -203,13 +276,7 @@ class MusicClient:
             "Origin": "https://i.y.qq.com", "Referer": "https://y.qq.com/",
             "Cookie": self.cookie,
         })
-        if int(data.get("code") or 0) != 0:
-            raise QQError(f"QQ 音乐返回错误：{data.get('code')}")
-        req = data.get("req_0") or {}
-        code = int(req.get("code") or 0)
-        if code in (1000, 500003):
-            raise QQError("QQ 音乐 Cookie 已失效，请重新快捷登录")
-        return code, req.get("data")
+        return _service_result(data)
 
     def medals(self) -> list[dict]:
         code, data = self._medal_call(
@@ -262,8 +329,12 @@ class MusicClient:
             raise QQError(f"签到失败（code={code}）")
         try:
             st = self.medal_status(medal_id)
-        except QQError:
-            st = {"signed": True, "continue_days": 0, "sign_number": 0}
+        except QQError as exc:
+            return {"signed": None, "already": False, "verified": False,
+                    "msg": "签到已提交，状态待核对", "verify_error": str(exc)}
+        if not st["signed"]:
+            return {**st, "already": False, "verified": True,
+                    "msg": "签到已提交，服务端尚未确认完成"}
         st["already"] = False
         extra = []
         if st.get("continue_days"):
@@ -279,10 +350,7 @@ class MusicClient:
             {"From": 1, "MedalID": str(medal_id)})
         if code != 0 or not isinstance(data, dict):
             raise QQError(f"拉取勋章任务失败（code={code}）")
-        out = []
-        for mod in (data.get("Detail") or []):
-            out.extend(mod.get("TaskList") or [])
-        return out
+        return _flatten_tasks(data)
 
     def report_task(self, medal_id: str, task: dict) -> tuple[bool, int]:
         code, _ = self._medal_call(
@@ -291,6 +359,38 @@ class MusicClient:
              "MedalID": str(medal_id),
              "ExtInfoStr": str(task.get("ExtInfoStr") or "")})
         return code == 0, code
+
+    def visit_task(self, task: dict) -> None:
+        """真实加载浏览类任务入口；不执行页面中的支付/抽卡/领奖按钮。"""
+        url = _task_url(task)
+        if not url:
+            raise QQError("任务没有可在电脑浏览器打开的入口")
+        try:
+            from playwright.sync_api import sync_playwright
+            from modules.signin.core import find_browser
+            from app.ui_settings import is_headless
+            with sync_playwright() as pw:
+                options = {"headless": is_headless()}
+                browser_path = find_browser()
+                if browser_path:
+                    options["executable_path"] = str(browser_path)
+                browser = pw.chromium.launch(**options)
+                try:
+                    context = browser.new_context(user_agent=QQ_UA,
+                                                  viewport={"width": 430, "height": 900})
+                    context.add_cookies([{"name": k, "value": v, "domain": ".y.qq.com",
+                                          "path": "/"} for k, v in parse_cookie(self.cookie).items()])
+                    page = context.new_page()
+                    response = page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                    if response is None or response.status >= 400:
+                        raise QQError("浏览任务页面未能成功加载")
+                    page.wait_for_timeout(3000)
+                finally:
+                    browser.close()
+        except QQError:
+            raise
+        except Exception as exc:
+            raise QQError(f"浏览任务页面失败：{exc}") from exc
 
     def praise_rank(self, medal_id: str, need: int) -> tuple[int, int]:
         """给排行榜上未点赞的乐迷点赞，返回 (成功数, 失败数)。"""
@@ -305,7 +405,7 @@ class MusicClient:
         for item in items:
             if got >= need:
                 break
-            if item.get("IsPraised"):
+            if _enabled(item.get("IsPraised")):
                 continue
             enc = str(item.get("ItemID") or "").strip()
             if not enc:
@@ -323,67 +423,53 @@ class MusicClient:
     # ---------------------------------------------------------------- 歌词卡/抽卡页
 
     def draw_card(self, pool_id: str) -> dict:
-        """抽 1 次歌词卡（消耗账号已有的抽卡次数，不花钱）。"""
-        code, d = self._medal_call("music.medalCard.MedalCardSrv", "GenerateOrderID",
-                                   {"PoolID": str(pool_id)})
-        if code != 0 or not (d or {}).get("OrderID"):
-            raise QQError("生成抽卡订单失败")
-        order = str(d["OrderID"])
-        code, d = self._medal_call(
-            "music.medalCard.MedalCardSrv", "DrawCard",
-            {"PoolID": str(pool_id), "Num": 1, "OrderID": order, "InviterEncUin": ""})
-        if code != 0:
-            raise QQError(f"抽卡失败（code={code}）")
-        cards = (d or {}).get("CardList") or (d or {}).get("Cards") or []
-        first = cards[0] if cards else {}
-        return {"ok": True, "order": order,
-                "card": str(first.get("Name") or ""),
-                "rarity": int(first.get("Rarity") or 0)}
+        """不能保证卡池只消耗当日免费次数，交由用户在官方页面确认。"""
+        raise QQError("抽卡会消耗账号抽卡次数，请在官方页面确认后操作")
 
     def card_pool_signin(self, pool_id: str) -> dict:
-        """抽卡页每日签到（GetDailySignInTask 拉取即触发当日签到）。"""
+        """抽卡页每日签到。
+
+        GetDailySignInTask 只是读取阶梯；真正签到要按当前阶梯的
+        ExtInfoStr 调 MedalCardTaskSrv.CgiTaskReport（网页端同款）。
+        """
         code, d = self._medal_call("music.medalCard.MedalCardTaskSrv",
                                    "GetDailySignInTask", {"PoolID": str(pool_id)})
         if code != 0:
-            raise QQError(f"抽卡页签到失败（code={code}）")
-        signed = int((d or {}).get("HasSignIn") or 0) == 1
-        return {"ok": True, "signed": signed}
-
-    def flip_card_challenge(self, pool_id: str, max_games: int = 3) -> dict:
-        """抽卡页「翻卡挑战」：把当天免费次数玩完（每次都真打完上报）。"""
-        issue, biz = str(pool_id), "medalcard"
-        code, d = self._medal_call("music.singercard.gamesvr", "GetFlipGameConfig",
-                                   {"issue": issue, "biz": biz})
+            raise QQError(f"抽卡页签到状态拉取失败（code={code}）")
+        if not isinstance(d, dict):
+            raise QQError("抽卡页签到状态结构异常")
+        data = d
+        if int(data.get("HasSignIn") or 0) == 1:
+            return {"ok": True, "signed": True, "already": True, "msg": "今天已经签到过了"}
+        tasks = data.get("SignInTask") or []
+        if not tasks:
+            raise QQError("抽卡页没有可签到的阶梯任务")
+        try:
+            idx = int(data.get("CurrLadderIndex") or 0)
+        except (TypeError, ValueError):
+            idx = 0
+        if not isinstance(tasks, list) or not 0 <= idx < len(tasks):
+            raise QQError("抽卡页签到阶梯已变化，请在官方页面查看")
+        task = tasks[idx]
+        if not isinstance(task, dict) or not task.get("ExtInfoStr"):
+            raise QQError("抽卡页当前签到阶梯缺少上报凭证")
+        code, _ = self._medal_call(
+            "music.medalCard.MedalCardTaskSrv", "CgiTaskReport",
+            {"GroupKeyType": 1, "GroupKey": str(pool_id),
+             "ExtInfoStr": str(task.get("ExtInfoStr") or ""),
+             "CustomExt": {}})
         if code != 0:
-            raise QQError(f"翻卡挑战配置拉取失败（code={code}）")
-        remain = int((((d or {}).get("userState") or {}).get("todayRemainCount")) or 0)
-        games = debris = 0
-        for _ in range(min(remain, max_games)):
-            code, d = self._medal_call("music.singercard.gamesvr", "StartFlipGame",
-                                       {"issue": issue, "biz": biz, "difficulty": 1})
-            gid = (d or {}).get("gameID")
-            if code != 0 or not gid:
-                break
-            perfect = int((d or {}).get("perfectStep") or 7)
-            total = int((d or {}).get("totalTimeSec") or 30)
-            pairs = max(1, perfect - 1)
-            for pct, matched in ((25, pairs // 3), (60, pairs * 2 // 3), (100, pairs)):
-                self._medal_call("music.singercard.gamesvr", "ReportFlipGameProgress",
-                                 {"issue": issue, "gameID": gid, "difficulty": 1,
-                                  "progressPercent": pct, "matchedPairNum": matched,
-                                  "biz": biz})
-                time.sleep(random.uniform(1.5, 2.5))
-            code, d = self._medal_call("music.singercard.gamesvr", "FinishFlipGame",
-                                       {"issue": issue, "gameID": gid,
-                                        "usedSteps": perfect,
-                                        "usedTimeMS": int(total * 1000 * 0.7),
-                                        "biz": biz})
-            if code != 0:
-                break
-            games += 1
-            debris += int((d or {}).get("debrisRewardFinal") or 0)
-            time.sleep(random.uniform(1.0, 2.0))
-        return {"ok": True, "remain": remain, "games": games, "debris": debris}
+            raise QQError(f"抽卡页签到上报被拒绝（code={code}）")
+        code, d = self._medal_call("music.medalCard.MedalCardTaskSrv",
+                                   "GetDailySignInTask", {"PoolID": str(pool_id)})
+        if code != 0 or int((d or {}).get("HasSignIn") or 0) != 1:
+            raise QQError("抽卡页签到上报后状态仍未生效")
+        return {"ok": True, "signed": True, "already": False, "msg": "签到完成"}
+
+    def flip_card_challenge(self, issue: str, biz: str = "medalcard",
+                            max_games: int = 3) -> dict:
+        """游戏必须实际游玩；不编造配对结果、步数或耗时换取奖励。"""
+        raise QQError("翻卡挑战需要在官方页面实际完成，请打开任务入口游玩后刷新状态")
 
     def _act_call(self, method: str, param: dict):
         payload = {
@@ -404,16 +490,12 @@ class MusicClient:
             "Referer": "https://i2.y.qq.com/n3/client/pages/points_center/index.html",
             "Cookie": self.cookie,
         })
-        if int(data.get("code") or 0) != 0:
-            raise QQError(f"QQ 音乐返回错误：{data.get('code')}")
-        req = data.get("req_0") or {}
-        code = int(req.get("code") or 0)
-        if code in (1000, 500003):
-            raise QQError("QQ 音乐 Cookie 已失效，请重新快捷登录")
+        code, result = _service_result(data)
         if code != 0:
             raise QQError(f"QQ 音乐签到失败（code={code}）")
-        result = req.get("data") or {}
-        ret = int(result.get("retCode") or 0)
+        if not isinstance(result, dict):
+            raise QQError("QQ 音乐签到响应缺少数据")
+        ret = _number(result.get("retCode"), 0)
         if ret != 0:
             raise QQError(f"QQ 音乐签到失败：{result.get('retMsg') or ret}")
         return result
@@ -450,16 +532,18 @@ def refresh_medals(cookie: str) -> dict:
     client = MusicClient(cookie)
     medals = client.medals()
     for m in medals:
-        st = client.medal_status(m["id"])
-        m.update(st)
+        try:
+            m.update(client.medal_status(m["id"]))
+        except QQError as exc:
+            m.update({"signed": None, "error": str(exc)})
         try:
             tasks = client.task_list(m["id"])
             views = [_task_view(t) for t in tasks]
             m["task_total"] = len(views)
             m["task_done"] = sum(1 for v in views if v["done"])
             m["tasks"] = views
-        except QQError:
-            pass
+        except QQError as exc:
+            m["task_error"] = str(exc)
         if not m.get("name"):
             m["name"] = f"勋章 {m['id']}"
     signed = sum(1 for m in medals if m.get("signed"))
@@ -468,113 +552,200 @@ def refresh_medals(cookie: str) -> dict:
 
 
 def _task_done(t: dict) -> bool:
-    total = int(t.get("TotalTimes") or 0)
-    achieved = int(t.get("AchievedTimes") or 0)
-    return int(t.get("Status") or 0) == 2 or (total > 0 and achieved >= total)
+    total = _number(t.get("TotalTimes"))
+    achieved = _number(t.get("AchievedTimes"))
+    return _number(t.get("Status")) == 2 or (total > 0 and achieved >= total)
 
 
-def _task_view(t: dict) -> dict:
-    typ = str(t.get("TaskType") or "").strip()
+def _pool_id(task: dict) -> str:
+    # 先解析官方入口的嵌套网页地址；直接 unquote 整条应用链接会把
+    # 内层查询参数误作外层参数，也会漏掉位于内层首项的 pool_id。
+    url = _task_url(task)
+    value = urllib.parse.parse_qs(urllib.parse.urlparse(url).query).get("pool_id", [""])[0]
+    return value if re.fullmatch(r"[0-9A-Za-z-]+", value) else ""
+
+
+def _task_url(task: dict) -> str:
+    """只允许官方活动网页；应用协议/本地文件交给用户手动处理。"""
+    typ = str(task.get("TaskType") or "").strip()
+    if typ == "jump_external_app_singer":
+        ext = task.get("Ext") or {}
+        if isinstance(ext, dict):
+            container = str(ext.get("containerID") or "")
+            if re.fullmatch(r"[A-Za-z0-9_-]+", container):
+                return "https://weibo.com/p/" + container
+    url = str(task.get("BtnJumpURL") or "").strip().replace("&amp;", "&")
+    for _ in range(3):
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme in ("http", "https"):
+            host = (parsed.hostname or "").lower()
+            if parsed.username or parsed.password:
+                return ""
+            if any(host == d or host.endswith("." + d)
+                   for d in ("qq.com", "weibo.com", "weibo.cn")):
+                return urllib.parse.urlunparse(parsed._replace(scheme="https"))
+            return ""
+        query = urllib.parse.parse_qs(parsed.query)
+        nested = query.get("url") or query.get("weburl") or []
+        if not nested:
+            return ""
+        url = nested[0]
+    return ""
+
+
+def _task_capability(task: dict) -> tuple[str, str]:
+    typ = str(task.get("TaskType") or "").strip()
+    title = str(task.get("Title") or task.get("TaskName") or "")
+    if PAID_TYPE_RE.search(typ) or PAID_TITLE_RE.search(title):
+        return "paid", "付费、购买或兑换类任务不自动执行"
+    if _number(task.get("Status")) in (3, 4):
+        return "unavailable", "服务端已隐藏或结束此任务"
+    if _number(task.get("BtnState")) == 1 and not _task_done(task):
+        return "unavailable", "服务端暂未开放此任务，请查看官方页面的前置条件"
+    if typ == "sign_in":
+        return "auto", "由每日勋章签到处理"
+    if typ == "medal_praised_singer":
+        return "auto", "对排行榜中尚未点赞的乐迷实际点赞"
+    if typ == "medal_card_draw_card":
+        return "manual", "抽卡会消耗抽卡次数，请在官方页面确认后操作"
+    if "watch_ad" in typ or typ.startswith(("mp_reward_light", "second_click_ads")):
+        return "manual", "广告奖励需要 QQ 音乐客户端实际播放与 SDK 凭证"
+    if "listen" in typ or typ.startswith("song_listening"):
+        return "manual", "需要实际播放歌曲，平台验证收听记录"
+    if "share" in typ or typ == "calendar_reminder":
+        return "manual", "需要在 QQ 音乐客户端完成分享或日历操作"
+    if "game" in typ or "farm" in typ or typ in ("play_bounce", "play_guess"):
+        return "manual", "需要在官方页面实际游玩，不能用虚构进度替代"
+    if "skin_blind_box" in str(task.get("BtnJumpURL") or ""):
+        return "manual", "盲盒页面还需实际参与活动，仅浏览不足以完成"
+    if typ == "jump_external_app_singer" and _task_url(task):
+        return "auto", "访问官方支持的微博网页入口后上报，再核对进度"
+    if _enabled(task.get("NeedReportCondition")) and _task_url(task) and typ:
+        return "auto", "按服务端声明访问任务网页后上报，再核对进度"
+    if typ in REPORT_TASK_TYPES:
+        return "manual", "服务端未提供可上报的网页任务条件，请在官方客户端完成"
+    return "manual", "此任务尚无可验证的电脑端自动流程，可打开官方入口处理"
+
+
+def _manual_only(task: dict) -> bool:
+    return _task_capability(task)[0] != "auto"
+
+
+def _task_view(task: dict, *, verified: bool = True) -> dict:
+    typ = str(task.get("TaskType") or "").strip()
+    capability, reason = _task_capability(task)
     return {
-        "name": str(t.get("Title") or t.get("TaskName") or typ or "未命名任务"),
+        "id": _task_identity(task),
+        "name": str(task.get("Title") or task.get("TaskName") or typ or "未命名任务"),
         "type": typ,
-        "finish": int(t.get("AchievedTimes") or 0),
-        "need": int(t.get("TotalTimes") or 0),
-        "done": _task_done(t),
-        "auto": typ in AUTO_MEDAL_TASK_TYPES or typ == "sign_in",
+        "finish": _number(task.get("AchievedTimes")),
+        "need": _number(task.get("TotalTimes")),
+        "done": _task_done(task),
+        "auto": capability == "auto",
+        "capability": capability,
+        "reason": reason,
+        "url": _task_url(task),
+        "verified": verified,
     }
 
 
-def _selected_task_types(selected) -> set[str]:
+def _selected_task_types(selected) -> set[str] | None:
     if not isinstance(selected, (list, tuple, set)):
-        return set(AUTO_MEDAL_TASK_TYPES)
-    return {str(x) for x in selected if str(x or "").strip()}
+        return None  # 默认按当前服务端任务的能力动态选择，兼容新增免费浏览任务。
+    return {str(x).strip() for x in selected if str(x or "").strip()}
 
 
 def complete_medal_tasks(client: MusicClient, medal_id: str, selected=None) -> dict:
-    """遍历该勋章当前的全部任务，只执行设置里勾选了的任务类型。"""
-    tasks = client.task_list(medal_id)
-    before = sum(1 for t in tasks if _task_done(t))
+    """执行真实动作并以服务端回读为准；写请求不盲目重试。"""
+    try:
+        tasks = client.task_list(medal_id)
+    except QQError:
+        time.sleep(1.0)
+        tasks = client.task_list(medal_id)
+    before = {_task_identity(t): _task_done(t) for t in tasks}
+    last_confirmed_tasks = tasks
     picked = _selected_task_types(selected)
     fail = 0
-    failed = []
-    manual = []
-    card_pools = set()
-    for t in tasks:
-        if str(t.get("TaskType") or "").strip() == "medal_card_draw_card":
-            m = POOL_ID_RE.search(str(t.get("BtnJumpURL") or ""))
-            if m:
-                card_pools.add(m.group(1))
-    for t in tasks:
-        if _task_done(t):
+    failures, manual, attempted = {}, [], set()
+    card_pools = {_pool_id(t) for t in tasks if _pool_id(t)}
+    for task in tasks:
+        if _task_done(task):
             continue
-        typ = str(t.get("TaskType") or "").strip()
-        if typ == "sign_in" or typ not in picked:
+        typ = str(task.get("TaskType") or "").strip()
+        if typ == "sign_in" or (picked is not None and typ not in picked):
             continue
-        total = int(t.get("TotalTimes") or 1)
-        achieved = int(t.get("AchievedTimes") or 0)
-        need = max(0, total - achieved)
-        if need <= 0:
+        capability, reason = _task_capability(task)
+        title = str(task.get("Title") or task.get("TaskName") or typ)
+        if capability != "auto":
+            manual.append(f"{title}（{reason}）")
             continue
-        if typ not in AUTO_MEDAL_TASK_TYPES:
-            # 新广告、农场游戏、完整听歌这类服务端要真实行为，上报接口
-            # 直接拒收；不硬试，如实提示需要手动，也不计入失败。
-            manual.append(str(t.get("Title") or typ))
+        need = max(0, _number(task.get("TotalTimes"), 1)
+                   - _number(task.get("AchievedTimes")))
+        if not need:
             continue
-        if typ == "medal_praised_singer":
-            try:
-                got, _bad = client.praise_rank(medal_id, need)
-                if got < need:
-                    fail += 1
-                    failed.append(str(t.get("Title") or typ))
-            except QQError:
-                fail += 1
-                failed.append(str(t.get("Title") or typ))
-        elif typ == "medal_card_draw_card":
-            if not card_pools:
-                fail += 1
-                failed.append(str(t.get("Title") or typ))
-                continue
-            pool = next(iter(card_pools))
-            for _ in range(need):
-                try:
-                    client.draw_card(pool)
-                except QQError:
-                    fail += 1
-                    failed.append(str(t.get("Title") or typ))
-                    break
-                time.sleep(random.uniform(1.0, 1.8))
-        else:
-            for _ in range(need):
-                ok, _code = client.report_task(medal_id, t)
-                if not ok:
-                    time.sleep(2.5)
-                    ok, _code = client.report_task(medal_id, t)
-                if not ok:
-                    fail += 1
-                    failed.append(str(t.get("Title") or typ))
-                    break
-                time.sleep(random.uniform(0.8, 1.4))
-    after = client.task_list(medal_id)
-    views = [_task_view(t) for t in after]
-    done = sum(1 for v in views if v["done"])
-    remaining = [v["name"] for v in views
-                 if not v["done"] and v["type"] != "sign_in"
-                 and v["type"] in picked and v["type"] in AUTO_MEDAL_TASK_TYPES]
-    unselected = [v for v in views
-                  if not v["done"] and v["type"] != "sign_in" and v["type"] not in picked]
+        try:
+            attempted.add(_task_identity(task))
+            if typ == "medal_praised_singer":
+                got, _bad = client.praise_rank(medal_id, min(need, 20))
+                if got < min(need, 20):
+                    raise QQError(f"本次点赞 {got}/{need}，可能没有可点赞对象")
+            else:
+                # 每次拿新 TaskID / ExtInfoStr；阶梯式任务完成一次后参数可能变化。
+                current = task
+                for n in range(min(need, 20)):
+                    client.visit_task(current)
+                    ok, code = client.report_task(medal_id, current)
+                    if not ok:
+                        raise QQError(f"上报被拒绝（code={code}）")
+                    if n + 1 < min(need, 20):
+                        time.sleep(1.0)
+                        refreshed = client.task_list(medal_id)
+                        last_confirmed_tasks = refreshed
+                        current = next((t for t in refreshed
+                                        if _task_identity(t) == _task_identity(task)), None)
+                        if current is None or _task_done(current):
+                            break
+                        # 新阶梯的能力/类型可能已变化，不能沿用上一阶梯的可执行判断。
+                        if (str(current.get("TaskType") or "").strip() != typ
+                                or _task_capability(current)[0] != "auto"):
+                            break
+                        # 没有确认进度增长时不重复提交同一条件。
+                        if _number(current.get("AchievedTimes")) <= _number(task.get("AchievedTimes")):
+                            break
+                        task = current
+        except QQError as exc:
+            failures[_task_identity(task)] = f"{title}（{exc}）"
+    verify_error = ""
+    try:
+        after = client.task_list(medal_id)
+    except QQError:
+        time.sleep(1.0)
+        try:
+            after = client.task_list(medal_id)
+        except QQError as exc:
+            verify_error = str(exc)
+            after = last_confirmed_tasks  # 保留上次确认进度，绝不能补造 Status=2。
+    views = [_task_view(t, verified=not bool(verify_error)) for t in after]
+    if not verify_error:
+        for task in after:
+            if _task_done(task):
+                failures.pop(_task_identity(task), None)
+    failed = list(failures.values())
+    fail = len(failed)
+    auto_done = sum(1 for t in after if _task_identity(t) in attempted
+                    and not before.get(_task_identity(t), False) and _task_done(t)) if not verify_error else 0
+    selected_views = [v for v in views if v["type"] != "sign_in"
+                      and (picked is None or v["type"] in picked)]
+    pending = [v["name"] for v in views if v["id"] in attempted and not v["done"]]
     return {
-        "total": len(views),
-        "done": done,
-        "auto": max(0, done - before),
-        "fail": fail,
+        "total": len(views), "done": sum(1 for v in views if v["done"]),
+        "auto": auto_done, "fail": fail,
         "skipped": sum(1 for v in views if not v["done"]),
-        "unselected": len(unselected),
-        "remaining": remaining,
-        "manual": manual,
-        "failed": failed,
-        "tasks": views,
-        "card_pools": sorted(card_pools),
+        "unselected": sum(1 for v in views if not v["done"] and v["type"] != "sign_in"
+                          and picked is not None and v["type"] not in picked),
+        "remaining": [v["name"] for v in selected_views if not v["done"] and v["auto"]],
+        "manual": manual, "failed": failed, "pending": pending,
+        "verify_error": verify_error, "tasks": views, "card_pools": sorted(card_pools),
     }
 
 
@@ -686,8 +857,8 @@ class Task:
 
     def _run_medals(self, cookie: str, tasks_enable: bool = True, selected=None,
                     medal_ids=None) -> dict:
-        client = MusicClient(cookie)
         try:
+            client = MusicClient(cookie)
             medals = client.medals()
         except QQError as exc:
             self.log("error", f"乐迷勋章：{exc}")
@@ -748,9 +919,12 @@ class Task:
                     if st.get("already"):
                         self.log("info", f"{name}：{st['msg']}")
                         skipped += 1
-                    else:
+                    elif st.get("signed"):
                         self.log("success", f"{name}：{st['msg']}")
                         done += 1
+                    else:
+                        self.log("warn", f"{name}：{st['msg']}")
+                        skipped += 1
                     if i < len(medals) - 1:
                         time.sleep(random.uniform(1.2, 2.4))
             except QQError as exc:
@@ -764,7 +938,8 @@ class Task:
                     tr = complete_medal_tasks(client, mid, selected)
                     m.update({"task_total": tr["total"], "task_done": tr["done"],
                               "task_auto": tr["auto"], "task_skipped": tr["skipped"],
-                              "tasks": tr["tasks"]})
+                              "tasks": tr["tasks"], "task_verified": not bool(tr["verify_error"]),
+                              "task_pending": tr["pending"], "task_error": tr["verify_error"]})
                     done += tr["auto"]
                     fail += tr["fail"]
                     skipped += tr["skipped"]
@@ -778,16 +953,29 @@ class Task:
                         self.log("info", f"{name}：已选任务未完成 {names}{more}")
                     if tr.get("failed"):
                         self.log("warn", f"{name}：处理失败 {('、'.join(tr['failed'][:6]))}")
+                    if tr.get("verify_error"):
+                        self.log("warn", f"{name}：任务状态核对失败 {tr['verify_error']}"
+                                         f"（保留上次确认进度，不记为完成，请稍后刷新）")
+                    if tr.get("pending"):
+                        self.log("info", f"{name}：已执行但尚未确认到账 "
+                                         f"{('、'.join(tr['pending'][:6]))}")
                     if tr.get("manual"):
                         names = "、".join(tr["manual"][:6])
                         more = " 等" if len(tr["manual"]) > 6 else ""
                         self.log("info", f"{name}：需要手动完成 {names}{more}"
-                                         f"（要真实看广告/听歌/玩游戏）")
+                                         f"（要真实看广告/听歌/分享/进页面等）")
                     if tr["unselected"]:
                         self.log("info", f"{name}：未勾选 {tr['unselected']} 项")
                 except QQError as exc:
                     self.log("warn", f"{name}：任务处理失败 {exc}")
                     fail += 1
+
+            elif load_music().get("card_pool_enable", True):
+                # 抽卡页签到开关独立于勋章任务开关，仍只读发现对应卡池。
+                try:
+                    card_pools.update(_pool_id(t) for t in client.task_list(mid) if _pool_id(t))
+                except QQError as exc:
+                    self.log("warn", f"{name}：卡池入口读取失败 {exc}")
 
             if not m.get("name"):
                 m["name"] = f"勋章 {mid}"
@@ -805,37 +993,28 @@ class Task:
                 "at": int(time.time())}
 
     def _run_card_pools(self, cookie: str, pools: list[str]) -> dict:
-        """抽卡页（歌词卡）任务：每日签到 + 翻卡挑战免费次数。"""
+        """歌词卡卡池只做每日签到；游戏入口交由用户实际游玩。"""
         client = MusicClient(cookie)
         result = {"pools": [], "done": 0, "fail": 0, "skipped": 0}
         for pool in pools:
             row = {"pool": pool, "signin": None, "flip": None}
             try:
                 row["signin"] = client.card_pool_signin(pool)
-                if row["signin"]["signed"]:
+                if row["signin"].get("already"):
                     self.log("info", f"抽卡页 {pool}：今天已签到")
                     result["skipped"] += 1
                 else:
-                    self.log("success", f"抽卡页 {pool}：签到完成")
+                    self.log("success", f"抽卡页 {pool}："
+                                        f"{row['signin'].get('msg') or '签到完成'}")
                     result["done"] += 1
                 time.sleep(random.uniform(1.0, 2.0))
             except QQError as exc:
                 row["signin"] = {"ok": False, "error": str(exc)}
                 self.log("warn", f"抽卡页 {pool}：签到失败 {exc}")
                 result["fail"] += 1
-            try:
-                row["flip"] = client.flip_card_challenge(pool)
-                if row["flip"]["games"]:
-                    self.log("success", f"抽卡页 {pool}：翻卡挑战 {row['flip']['games']} 局"
-                                       f"，得碎片 {row['flip']['debris']}")
-                    result["done"] += row["flip"]["games"]
-                else:
-                    self.log("info", f"抽卡页 {pool}：翻卡挑战今天没有免费次数了")
-                    result["skipped"] += 1
-            except QQError as exc:
-                row["flip"] = {"ok": False, "error": str(exc)}
-                self.log("warn", f"抽卡页 {pool}：翻卡挑战失败 {exc}")
-                result["fail"] += 1
+            row["flip"] = {"ok": False, "manual": True,
+                           "reason": "需在官方页面实际完成翻卡挑战后刷新状态"}
+            self.log("info", f"抽卡页 {pool}：翻卡挑战需实际游玩，已保留手动入口")
             result["pools"].append(row)
         result["at"] = int(time.time())
         return result
@@ -849,6 +1028,10 @@ TASK = Task()
 def _verify_music(cookie: str) -> tuple[bool, str]:
     ck = parse_cookie(cookie)
     if not music_ready(cookie):
+        return False, ""
+    try:
+        MusicClient(cookie).medals()  # 只读验证；字段齐全不代表登录态尚未过期。
+    except QQError:
         return False, ""
     return True, str(ck.get("uin") or ck.get("wxuin") or "")
 
