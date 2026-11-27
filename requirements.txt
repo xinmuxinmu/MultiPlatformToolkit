@@ -13,3 +13,4 @@ certifi
 selenium>=4.20
 schedule>=1.2
 requests>=2.31
+qrcode>=8.0,<9

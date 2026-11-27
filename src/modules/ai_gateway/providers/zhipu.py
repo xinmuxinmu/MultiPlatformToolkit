@@ -1,0 +1,252 @@
+"""ChatGLM's first-party WeChat OAuth, encrypted cookies and daily score API.
+
+Protocol evidence: desktop auth-headers.js and chatglm.cn's production bundles.
+No application or embedded browser is started; local files are read only.
+"""
+from __future__ import annotations
+
+import base64
+import hashlib
+import json
+import os
+import re
+import secrets
+import sqlite3
+import time
+import uuid
+from pathlib import Path
+from urllib.parse import urlencode
+
+import requests
+from PIL import Image
+import io
+
+from modules.ai_gateway.base import GatewayError
+
+ORIGIN = "https://chatglm.cn"
+SIGN_SECRET = "8a1317a7468aa3ad86e997d08f3f31cb"  # Published first-party client constant.
+TOKEN_NAMES = ("chatglm_token", "chatglm_refresh_token")
+MAX_QR_IMAGE_BYTES = 2 * 1024 * 1024
+
+
+def signed_headers(credential=None, *, milliseconds=None, nonce=None):
+    credential = credential or {}
+    digits = str(int(time.time() * 1000) if milliseconds is None else int(milliseconds))
+    stamp = digits[:-2] + str((sum(map(int, digits)) - int(digits[-2])) % 10) + digits[-1]
+    nonce = nonce or uuid.uuid4().hex
+    headers = {"Content-Type": "application/json;charset=utf-8", "App-Name": "chatglm",
+               "X-Device-Id": credential.get("device_id") or uuid.uuid4().hex,
+               "X-Request-Id": uuid.uuid4().hex, "X-App-Platform": "pc",
+               "X-App-Version": "0.0.1", "X-Timestamp": stamp, "X-Nonce": nonce,
+               "X-Sign": hashlib.md5(f"{stamp}-{nonce}-{SIGN_SECRET}".encode()).hexdigest(),
+               "Origin": ORIGIN, "Referer": ORIGIN + "/", "User-Agent": "Mozilla/5.0"}
+    token = credential.get("access_token")
+    if token:
+        if not isinstance(token, str) or any(c in token for c in "\r\n"):
+            raise GatewayError("智谱登录凭据无效", code="invalid_credential")
+        headers["Authorization"] = "Bearer " + token
+    return headers
+
+
+def _read_qr_image(response):
+    chunks, size = [], 0
+    iterator = getattr(response, "iter_content", None)
+    if iterator:
+        for chunk in iterator(64 * 1024):
+            if not chunk:
+                continue
+            size += len(chunk)
+            if size > MAX_QR_IMAGE_BYTES:
+                raise ValueError("QR image is too large")
+            chunks.append(chunk)
+    else:
+        content = response.content
+        if len(content) > MAX_QR_IMAGE_BYTES:
+            raise ValueError("QR image is too large")
+        chunks.append(content)
+    return b"".join(chunks)
+
+
+def _read_local_cookies(profile):
+    from modules.ai_checkin.vendor.qoder_cred import _dpapi_unprotect, _decrypt_gcm
+
+    try:
+        state = json.loads((profile / "Local State").read_text(encoding="utf-8"))
+        wrapped = base64.b64decode(state["os_crypt"]["encrypted_key"], validate=True)
+        if not wrapped.startswith(b"DPAPI"):
+            raise ValueError("unsupported key wrapper")
+        key = _dpapi_unprotect(wrapped[5:])
+        database = profile / "Network" / "Cookies"
+        uri = database.resolve().as_uri() + "?mode=ro"
+        conn = sqlite3.connect(uri, uri=True, timeout=2)
+        try:
+            version = int(conn.execute("SELECT value FROM meta WHERE key='version'").fetchone()[0])
+            rows = conn.execute(
+                "SELECT host_key,name,value,encrypted_value,last_access_utc FROM cookies "
+                "WHERE name IN ('chatglm_token','chatglm_refresh_token') "
+                "ORDER BY last_access_utc DESC").fetchall()
+        finally:
+            conn.close()
+        tokens = {}
+        for host, name, value, encrypted, _ in rows:
+            # Only cookies usable for the confirmed chatglm.cn production origin.
+            if host.lower().lstrip(".") != "chatglm.cn" or name in tokens:
+                continue
+            if encrypted:
+                blob = bytes(encrypted)
+                if blob[:3] in (b"v10", b"v11"):
+                    plain = _decrypt_gcm(key, blob[3:15], blob[15:])
+                elif blob[:3] == b"v20":
+                    raise ValueError("unsupported app-bound encryption")
+                else:
+                    plain = _dpapi_unprotect(blob)
+                if version >= 24:
+                    if plain[:32] != hashlib.sha256(host.encode()).digest():
+                        raise ValueError("cookie host binding mismatch")
+                    plain = plain[32:]
+                value = plain.decode("utf-8")
+            if isinstance(value, str) and value and not any(c in value for c in "\r\n"):
+                tokens[name] = value
+        if not tokens.get("chatglm_token"):
+            raise ValueError("access token missing")
+        return {"access_token": tokens["chatglm_token"],
+                "refresh_token": tokens.get("chatglm_refresh_token", ""), "device_id": uuid.uuid4().hex}
+    except (OSError, ValueError, KeyError, TypeError, sqlite3.Error):
+        raise GatewayError("无法读取或解密智谱清言本地登录态，可使用微信扫码添加",
+                           code="local_credential_unavailable") from None
+
+
+class ZhipuProvider:
+    id = "zhipu"
+    name = "智谱清言"
+    capabilities = dict(login=True, local_import=True, chat=False, checkin=True,
+                        reason="支持官网微信扫码、本地凭据导入和每日积分；聊天流尚在核实")
+
+    def __init__(self, http=None):
+        self.http = http or requests.Session()
+
+    def _json(self, method, path, credential=None, **kwargs):
+        try:
+            # An injected requests.Session is shared by provider calls. An explicit empty Cookie
+            # header prevents its mutable cookie jar from carrying one account into another.
+            headers = {**signed_headers(credential), "Cookie": ""}
+            response = self.http.request(method, ORIGIN + path, headers=headers,
+                                         timeout=20, allow_redirects=False, **kwargs)
+            if response.status_code in (401, 403):
+                raise GatewayError("智谱登录态失效或被拒绝，请重新扫码", 401, "credential_expired")
+            result = response.json()
+            if not isinstance(result, dict):
+                raise ValueError("invalid response")
+            if response.status_code >= 300 and not (path.endswith("/daily_login_score") and
+                                                      result.get("status") == 10001):
+                raise GatewayError(f"智谱接口返回 HTTP {response.status_code}", 502, "upstream_error")
+            return result
+        except GatewayError:
+            raise
+        except (requests.RequestException, ValueError):
+            raise GatewayError("智谱接口请求失败或响应无效", 502, "upstream_error") from None
+
+    def _identity(self, credential):
+        result = self._json("GET", "/chatglm/user-api/user/info", credential)
+        if result.get("status") not in (0, 200):
+            raise GatewayError("智谱未确认登录身份，请重新扫码", 401, "credential_expired")
+        user = result.get("result") or {}
+        if not isinstance(user, dict) or user.get("is_guest") is True:
+            raise GatewayError("智谱当前登录态为游客，无法添加或签到", code="guest_credential")
+        external_id = str(user.get("user_id") or user.get("id") or user.get("_id") or "")
+        if not external_id:
+            raise GatewayError("智谱未返回账号标识", 502, "invalid_upstream_response")
+        return {"credential": credential, "external_id": external_id,
+                "label": str(user.get("nickname") or user.get("name") or "智谱账号")}
+
+    def start_login(self, options=None):
+        state = secrets.token_urlsafe(24)
+        auth_url = "https://open.weixin.qq.com/connect/qrconnect?" + urlencode({
+            "appid": "wx7b19c27985d99d60", "redirect_uri": ORIGIN + "/WeChatLoginTransit",
+            "response_type": "code", "scope": "snsapi_login", "state": state})
+        try:
+            response = self.http.get(auth_url, headers={"Cookie": ""}, timeout=20, allow_redirects=False)
+            match = re.search(r"/connect/qrcode/([A-Za-z0-9_-]+)", response.text)
+            if response.status_code != 200 or not match:
+                raise ValueError("no QR session")
+            image = self.http.get("https://open.weixin.qq.com/connect/qrcode/" + match[1],
+                                  headers={"Cookie": ""}, timeout=20, allow_redirects=False, stream=True)
+            image_bytes = _read_qr_image(image)
+            if image.status_code != 200 or not image_bytes or not image.headers.get("Content-Type", "").startswith("image/"):
+                raise ValueError("no QR image")
+            with Image.open(io.BytesIO(image_bytes)) as source:
+                output = io.BytesIO()
+                source.convert("RGB").save(output, format="PNG")
+        except (requests.RequestException, ValueError, OSError):
+            raise GatewayError("智谱微信二维码暂时无法获取，请重试", 502, "upstream_error") from None
+        return {"auth_url": auth_url, "qr_url": "https://open.weixin.qq.com/connect/qrcode/" + match[1],
+                "qr_image": "data:image/png;base64," + base64.b64encode(output.getvalue()).decode("ascii"),
+                "expires_in": 300, "state": {"uuid": match[1], "oauth_state": state,
+                    "created_at": time.time(), "device_id": uuid.uuid4().hex}}
+
+    def poll_login(self, session):
+        state = session.get("state", session)
+        if time.time() - state.get("created_at", 0) >= 300:
+            return {"status": "expired"}
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", state.get("uuid", "")):
+            raise GatewayError("智谱扫码会话不存在", code="invalid_login_session")
+        try:
+            response = self.http.get("https://long.open.weixin.qq.com/connect/l/qrconnect",
+                params={"uuid": state["uuid"]}, headers={"Cookie": ""},
+                timeout=32, allow_redirects=False)
+        except requests.Timeout:
+            return {"status": "pending"}
+        except requests.RequestException:
+            raise GatewayError("智谱扫码状态查询失败", 502, "upstream_error") from None
+        match = re.search(r"wx_errcode\s*=\s*(\d+)", response.text)
+        if response.status_code != 200 or not match:
+            raise GatewayError("智谱扫码状态响应无效", 502, "upstream_error")
+        code = int(match[1])
+        if code == 408:
+            return {"status": "pending"}
+        if code == 404:
+            return {"status": "scanned"}
+        if code in (402, 403):
+            return {"status": "expired"}
+        login_code = re.search(r"wx_code\s*=\s*[\"']([^\"']+)[\"']", response.text)
+        if code != 405 or not login_code:
+            raise GatewayError("智谱微信扫码授权失败，请刷新重试", code="login_rejected")
+        result = self._json("POST", "/chatglm/user-api/user/wechat_qr_login",
+                            {"device_id": state["device_id"]}, json={"login_code": login_code[1]})
+        data = result.get("result") or {}
+        if result.get("status") != 0 or not isinstance(data, dict):
+            raise GatewayError("智谱微信登录未获确认，请重试", code="login_rejected")
+        if data.get("has_login") is not True:
+            raise GatewayError("此智谱微信账号需要先在官网绑定手机，再重新扫码", code="phone_binding_required")
+        if not data.get("access_token") or not data.get("refresh_token"):
+            raise GatewayError("智谱扫码成功但登录凭据不完整", 502, "invalid_upstream_response")
+        credential = {"access_token": data["access_token"], "refresh_token": data["refresh_token"],
+                      "device_id": state["device_id"]}
+        return {"status": "authorized", **self._identity(credential)}
+
+    def import_local(self):
+        profile = Path(os.environ.get("ZHIPU_USER_DATA_DIR") or
+                       (Path(os.environ.get("APPDATA", "")) / "chatglm"))
+        return [self._identity(_read_local_cookies(profile))]
+
+    def models(self, credential):
+        return []
+
+    def chat(self, credential, payload):
+        raise GatewayError("智谱网页聊天流协议尚未完整验证，暂不可用于反代", code="unsupported_capability")
+
+    def checkin(self, credential, dry=False):
+        def outcome(status, message, credits=0):
+            return {"platform": self.name, "success": status in ("success", "already"),
+                    "status": status, "message": message, "credits": credits}
+        if not credential.get("access_token"):
+            raise GatewayError("智谱登录凭据缺失", code="invalid_credential")
+        if dry:
+            return outcome("skipped", "已读取智谱登录态，预演未发送 HTTP 请求")
+        result = self._json("POST", "/chatglm/member-api/member/daily_login_score", credential)
+        if result.get("status") == 10001:
+            return outcome("already", "智谱接口确认今日已领取登录积分")
+        score = (result.get("result") or {}).get("score")
+        if result.get("status") in (0, 200) and isinstance(score, (int, float)) and not isinstance(score, bool) and score > 0:
+            return outcome("success", "智谱每日登录积分领取成功", score)
+        return outcome("failed", "智谱每日积分接口未明确确认奖励或今日已领取")

@@ -15,8 +15,11 @@ _tmp_*.py
 
 # 会话临时产物（probe/实验脚本与抓包文件）
 /_*
+# 抓包提取的混淆前端 bundle（体积大、无源码价值）
+/farm_main.js
 
 # Independent Python module CLI data and retired frontend dependencies
 modules/*/data/
 .qoder-input-images/
-legacy/**/node_modules/
+src/modules/*/data/
+src/web_ui/**/node_modules/

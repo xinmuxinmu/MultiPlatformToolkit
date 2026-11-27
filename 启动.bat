@@ -9,21 +9,21 @@ rem Prefer this project's usable interpreter, then the Python launcher, then PAT
 if not exist ".venv\Scripts\python.exe" goto try_py
 ".venv\Scripts\python.exe" -c "import sys;sys.exit(0 if sys.version_info >= (3,10) else 1)" >nul 2>&1
 if errorlevel 1 goto try_py
-".venv\Scripts\python.exe" -X utf8 "%~dp0bootstrap.py" %*
+".venv\Scripts\python.exe" -X utf8 "%~dp0src\bootstrap.py" %*
 set "TOOLKIT_EXIT=%errorlevel%"
 goto finish
 
 :try_py
 py -3 -c "import sys;sys.exit(0 if sys.version_info >= (3,10) else 1)" >nul 2>&1
 if errorlevel 1 goto try_python
-py -3 -X utf8 "%~dp0bootstrap.py" %*
+py -3 -X utf8 "%~dp0src\bootstrap.py" %*
 set "TOOLKIT_EXIT=%errorlevel%"
 goto finish
 
 :try_python
 python -c "import sys;sys.exit(0 if sys.version_info >= (3,10) else 1)" >nul 2>&1
 if errorlevel 1 goto no_python
-python -X utf8 "%~dp0bootstrap.py" %*
+python -X utf8 "%~dp0src\bootstrap.py" %*
 set "TOOLKIT_EXIT=%errorlevel%"
 goto finish
 

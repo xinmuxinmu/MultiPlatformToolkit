@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 256 256">
+  <title>MultiPlatformToolkit</title>
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="#000"/>
+  <g fill="none" stroke="#fff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M128 62 194 98 128 134 62 98Z"/>
+    <path d="m62 128 66 36 66-36"/>
+    <path d="m62 158 66 36 66-36"/>
+  </g>
+</svg>
