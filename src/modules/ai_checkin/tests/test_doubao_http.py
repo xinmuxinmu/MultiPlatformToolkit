@@ -41,6 +41,46 @@ class DoubaoHttpCheckinTests(TestCase):
         self.assertEqual(result["status"], "already")
         self.assertEqual(post.call_count, 2)
 
+    def test_campaign_code_accepts_stringified_data_and_camel_case_fields(self):
+        responses = [
+            (200, {"code": 0, "data": '{"ugCampaignInfo": {"campaignGroupCode": "campaign-x"}}'}),
+            (200, {"code": 0, "data": {"main_page_info": {"buttons": []}}}),
+            (200, {"code": 0, "data": {"checked_in": True}}),
+        ]
+        with patch.object(doubao, "read_client_cookies", return_value=self.cookies), \
+             patch.object(doubao, "_doubao_post", side_effect=responses) as post:
+            result = doubao.checkin_http()
+
+        self.assertEqual((result["ok"], result["status"]), (True, "success"))
+        self.assertEqual(post.call_args_list[1].args[:2],
+                         ("/alice/ug/campaign/landing/get", {"scene": "campaign-x"}))
+
+    def test_campaign_code_accepts_top_level_launch_metadata(self):
+        responses = [
+            (200, {"code": 0, "ug_campaign_info": {"campaign_group_code": "campaign-x"}}),
+            (200, {"code": 0, "data": {"main_page_info": {"buttons": []}}}),
+            (200, {"code": 0, "data": {"checked_in": True}}),
+        ]
+        with patch.object(doubao, "read_client_cookies", return_value=self.cookies), \
+             patch.object(doubao, "_doubao_post", side_effect=responses) as post:
+            result = doubao.checkin_http()
+
+        self.assertEqual((result["ok"], result["status"]), (True, "success"))
+        self.assertEqual(post.call_args_list[1].args[:2],
+                         ("/alice/ug/campaign/landing/get", {"scene": "campaign-x"}))
+
+    def test_missing_campaign_code_does_not_submit_checkin(self):
+        responses = [(200, {"code": 0, "data": {"campaigns": [], "secret": "do-not-log"}})]
+        with patch.object(doubao, "read_client_cookies", return_value=self.cookies), \
+             patch.object(doubao, "_doubao_post", side_effect=responses) as post:
+            result = doubao.checkin_http()
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(post.call_count, 1)
+        self.assertIn("campaign_group_code", result["message"])
+        self.assertIn("campaigns", result["message"])
+        self.assertNotIn("do-not-log", result["message"])
+
     def test_missing_success_flag_is_not_reported_as_success(self):
         responses = [
             (200, {"code": 0, "data": {"ug_campaign_info": {"campaign_group_code": "campaign-x"}}}),

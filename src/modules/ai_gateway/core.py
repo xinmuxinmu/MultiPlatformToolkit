@@ -276,11 +276,17 @@ class Gateway:
             return accounts[cursor % len(accounts)]
 
     def chat(self, payload, account_id=None):
-        if not isinstance(payload.get("model"), str) or "/" not in payload["model"]:
-            raise GatewayError("model 需要使用 平台/模型 格式，可通过 /v1/models 查询", 400, "invalid_model")
-        provider_id, model = payload["model"].split("/", 1)
-        if not model:
-            raise GatewayError("模型名不能为空")
+        full_model = payload.get("model")
+        model_help = ("请从 AI 统一网关页面模型目录复制完整 ID（平台/模型），"
+                      "例如 workbuddy/default；也可通过 /v1/models 查询。")
+        if not isinstance(full_model, str) or "/" not in full_model:
+            raise GatewayError("model 必须包含平台前缀，不能只填写裸模型名。" + model_help,
+                               400, "invalid_model")
+        provider_id, model = full_model.split("/", 1)
+        if not provider_id.strip():
+            raise GatewayError("model 的平台前缀不能为空。" + model_help, 400, "invalid_model")
+        if not model.strip():
+            raise GatewayError("model 的模型名不能为空。" + model_help, 400, "invalid_model")
         provider = self.provider(provider_id, "chat")
         if not isinstance(payload.get("messages"), list) or not payload["messages"]:
             raise GatewayError("messages 必须是非空数组")

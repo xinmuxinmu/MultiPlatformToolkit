@@ -14,6 +14,7 @@ import anyio
 
 from .base import GatewayError
 from .compat import anthropic_events, anthropic_to_openai, collect_completion, completion_to_anthropic
+from .connection import build_connection_info
 from .core import GATEWAY
 
 
@@ -123,6 +124,17 @@ def delete_account(account_id: str):
 @router.get("/api/models")
 def management_models():
     return {"object": "list", "data": _operation(GATEWAY.models)}
+
+
+@router.get("/api/connection")
+def connection(request: Request):
+    def build():
+        catalog = GATEWAY.models()
+        state = GATEWAY.state()
+        return build_connection_info(str(request.base_url).rstrip("/") + "/v1",
+                                     state["providers"], state["accounts"], catalog)
+
+    return JSONResponse(_operation(build), headers={"Cache-Control": "no-store"})
 
 
 @proxy_router.get("/models")

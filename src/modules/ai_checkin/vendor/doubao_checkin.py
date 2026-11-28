@@ -828,31 +828,54 @@ def _response_ok(status: int, response: object) -> bool:
     return code is None or str(code) in ("0", "200")
 
 
-def _campaign_group_code(node: object) -> str:
-    """Read the campaign scene used by the bundled agent-explore check-in flow."""
+def _campaign_group_code(node: object, *, _depth: int = 0) -> str:
+    """Read the campaign scene from known launch-response wrappers."""
+    if _depth > 12:
+        return ""
+    if isinstance(node, str):
+        # Some client/API versions serialize `data` or `ug_campaign_info` a
+        # second time. Decode only bounded JSON-looking strings; arbitrary
+        # response text is never treated as a campaign identifier.
+        if not node or len(node) > 65536:
+            return ""
+        try:
+            decoded = json.loads(node)
+        except (ValueError, TypeError):
+            return ""
+        if isinstance(decoded, (dict, list)):
+            return _campaign_group_code(decoded, _depth=_depth + 1)
+        return ""
     code_keys = {"campaign_group_code", "campaigngroupcode"}
     if isinstance(node, dict):
         for key, value in node.items():
             normalized = str(key).replace("_", "").lower()
             if normalized in code_keys and isinstance(value, (str, int)) and str(value).strip():
                 return str(value).strip()
-            if normalized == "ug_campaign_info" and isinstance(value, str):
-                try:
-                    decoded = json.loads(value)
-                except ValueError:
-                    decoded = value
-                found = _campaign_group_code(decoded)
+            if normalized == "ugcampaigninfo" and isinstance(value, str):
+                found = _campaign_group_code(value, _depth=_depth + 1)
                 if found:
                     return found
-            found = _campaign_group_code(value)
+            found = _campaign_group_code(value, _depth=_depth + 1)
             if found:
                 return found
     elif isinstance(node, list):
         for value in node:
-            found = _campaign_group_code(value)
+            found = _campaign_group_code(value, _depth=_depth + 1)
             if found:
                 return found
     return ""
+
+
+def _response_shape(response: object) -> str:
+    """Return bounded field names only, never upstream values or credentials."""
+    if not isinstance(response, dict):
+        return type(response).__name__
+    fields = sorted(str(key)[:40] for key in response)[:12]
+    data = response.get("data")
+    if isinstance(data, dict):
+        data_fields = sorted(str(key)[:40] for key in data)[:12]
+        return f"响应字段={','.join(fields)}；data字段={','.join(data_fields)}"
+    return f"响应字段={','.join(fields)}"
 
 
 def _is_explicitly_checked_in(node: object) -> bool:
@@ -902,9 +925,12 @@ def checkin_http(dry: bool = False) -> dict:
         message = _response_error(basic) or (f"HTTP {status}" if status else "网络连接失败")
         return {"ok": False, "status": "failed", "message": f"读取豆包签到活动配置失败：{message}"}
 
-    code = _campaign_group_code(_response_data(basic))
+    # Search the wrapper as well as `data`: client revisions have placed the
+    # launch metadata at either level, and `data` may itself be JSON-encoded.
+    code = _campaign_group_code(basic)
     if not code:
-        return {"ok": False, "status": "failed", "message": "豆包接口未返回 ug_campaign_info.campaign_group_code，暂时无法确定签到活动"}
+        return {"ok": False, "status": "failed",
+                "message": f"豆包接口未返回 ug_campaign_info.campaign_group_code，暂时无法确定签到活动（{_response_shape(basic)}）"}
 
     # Match the client flow's read-only landing query before submitting its
     # DailyCheckIn operation; this also lets an explicit server state short-circuit.

@@ -718,6 +718,14 @@ class KugouDaily:
             if need <= 0:
                 continue
             label = t.get("name") or tid
+            # 游戏类任务需要先在活动页创建游戏会话并提交通关结果。
+            # 直接调用 outside_finish 没有 session/level 数据，服务端会返回
+            # “update affected row is 0”（errcode 20001），因此这里不再伪上报。
+            if tid.startswith("play_game:"):
+                self.log("info",
+                         f"{label}：需打开酷狗 App/H5 游戏页完成，当前未接入自动闯关，跳过")
+                skipped += 1
+                continue
             if tid == "fans_like":
                 try:
                     rank = mc.fans_rank(int(sid))
@@ -895,58 +903,7 @@ class KugouDaily:
         if prof["nickname"]:
             self.log("info", f"账号：{prof['nickname']}")
 
-        # 1) 听歌领 VIP
-        if not self.cfg.get("listen_enable", True):
-            self.log("info", "听歌领 VIP 关着，跳过")
-        elif prog.get("listen"):
-            self.log("info", "听歌领 VIP 今天已经领过，跳过")
-            skipped += 1
-        else:
-            try:
-                ok, msg = claim_result(client.listen_song())
-                self.log("success" if ok else "warn", f"听歌领 VIP：{msg}")
-                prog["listen"] = True if ok else False
-                done += 1 if ok else 0
-                fail += 0 if ok else 1
-            except KugouError as exc:
-                self.log("error", f"听歌领 VIP 失败：{exc}")
-                fail += 1
-            self._save_prog(prog)
-            self._sleep()
-
-        # 2) 看广告领 VIP
-        if not self.cfg.get("ad_enable", True):
-            self.log("info", "广告领 VIP 关着，跳过")
-        else:
-            times = _int(self.cfg.get("ad_times")) or 8
-            gap = max(1, _int(self.cfg.get("ad_gap")) or 30)
-            got = _int(prog.get("ad")) or 0
-            if got >= times:
-                self.log("info", f"广告领 VIP 今天已经领满 {times} 次，跳过")
-                skipped += 1
-            else:
-                for i in range(got + 1, times + 1):
-                    try:
-                        ok, msg = claim_result(client.ad_vip())
-                    except KugouError as exc:
-                        self.log("error", f"第 {i} 次领 VIP 失败：{exc}")
-                        fail += 1
-                        break
-                    if ok:
-                        self.log("success", f"第 {i} 次领 VIP：{msg}")
-                        got = i
-                        prog["ad"] = got
-                        done += 1
-                        self._save_prog(prog)
-                    else:
-                        self.log("warn", f"第 {i} 次领 VIP：{msg}")
-                        fail += 1
-                        break
-                    if i < times:
-                        self.log("info", f"等 {gap} 秒再领下一次")
-                        time.sleep(gap)
-
-        # 3) 乐迷勋章：每日守护 + 追加守护（实测每次各 +10 守护值）
+        # 1) 乐迷勋章：每日守护 + 追加守护（实测每次各 +10 守护值）
         medal = {}
         if not self.cfg.get("medal_enable", True):
             self.log("info", "乐迷勋章关着，跳过")
@@ -1010,6 +967,57 @@ class KugouDaily:
             except KugouError as exc:
                 self.log("error", f"乐迷勋章失败：{exc}")
                 fail += 1
+
+        # 2) 先处理广告领 VIP。
+        if not self.cfg.get("ad_enable", True):
+            self.log("info", "广告领 VIP 关着，跳过")
+        else:
+            times = _int(self.cfg.get("ad_times")) or 8
+            gap = max(1, _int(self.cfg.get("ad_gap")) or 30)
+            got = _int(prog.get("ad")) or 0
+            if got >= times:
+                self.log("info", f"广告领 VIP 今天已经领满 {times} 次，跳过")
+                skipped += 1
+            else:
+                for i in range(got + 1, times + 1):
+                    try:
+                        ok, msg = claim_result(client.ad_vip())
+                    except KugouError as exc:
+                        self.log("error", f"第 {i} 次领 VIP 失败：{exc}")
+                        fail += 1
+                        break
+                    if ok:
+                        self.log("success", f"第 {i} 次领 VIP：{msg}")
+                        got = i
+                        prog["ad"] = got
+                        done += 1
+                        self._save_prog(prog)
+                    else:
+                        self.log("warn", f"第 {i} 次领 VIP：{msg}")
+                        fail += 1
+                        break
+                    if i < times:
+                        self.log("info", f"等 {gap} 秒再领下一次")
+                        time.sleep(gap)
+
+        # 3) 听歌领 VIP 放在本次流程最后。
+        if not self.cfg.get("listen_enable", True):
+            self.log("info", "听歌领 VIP 关着，跳过")
+        elif prog.get("listen"):
+            self.log("info", "听歌领 VIP 今天已经领过，跳过")
+            skipped += 1
+        else:
+            try:
+                ok, msg = claim_result(client.listen_song())
+                self.log("success" if ok else "warn", f"听歌领 VIP：{msg}")
+                prog["listen"] = True if ok else False
+                done += 1 if ok else 0
+                fail += 0 if ok else 1
+            except KugouError as exc:
+                self.log("error", f"听歌领 VIP 失败：{exc}")
+                fail += 1
+            self._save_prog(prog)
+            self._sleep()
 
         after = load_state()
         after.update({"listen_done": bool(prog.get("listen")),

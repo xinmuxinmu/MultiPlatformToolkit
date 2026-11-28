@@ -732,7 +732,7 @@ def complete_medal_tasks(client: MusicClient, medal_id: str, selected=None, *,
     last_confirmed_tasks = tasks
     picked = _selected_task_types(selected)
     fail = 0
-    failures, manual, attempted = {}, [], set()
+    failures, manual, paid, unavailable, attempted = {}, [], [], [], set()
     card_pools = {_pool_id(t) for t in tasks if _pool_id(t)}
     for task in tasks:
         if _task_done(task):
@@ -743,7 +743,13 @@ def complete_medal_tasks(client: MusicClient, medal_id: str, selected=None, *,
         capability, reason = _task_capability(task, allow_card_draw=allow_card_draw)
         title = str(task.get("Title") or task.get("TaskName") or typ)
         if capability != "auto":
-            manual.append(f"{title}（{reason}）")
+            row = f"{title}（{reason}）"
+            if capability == "paid":
+                paid.append(row)
+            elif capability == "unavailable":
+                unavailable.append(row)
+            else:
+                manual.append(row)
             continue
         need = max(0, _number(task.get("TotalTimes"), 1)
                    - _number(task.get("AchievedTimes")))
@@ -810,14 +816,20 @@ def complete_medal_tasks(client: MusicClient, medal_id: str, selected=None, *,
     selected_views = [v for v in views if v["type"] != "sign_in"
                       and (picked is None or v["type"] in picked)]
     pending = [v["name"] for v in views if v["id"] in attempted and not v["done"]]
+    unfinished = sum(1 for v in views if not v["done"])
+    # “跳过”只统计本次没有实际尝试的未完成任务。已执行但尚未被任务列表
+    # 确认的项目属于 pending，不能再重复算作跳过。
+    skipped = sum(1 for v in views if not v["done"] and v["id"] not in attempted
+                  and v["type"] != "sign_in")
     return {
         "total": len(views), "done": sum(1 for v in views if v["done"]),
         "auto": auto_done, "fail": fail,
-        "skipped": sum(1 for v in views if not v["done"]),
+        "skipped": skipped, "unfinished": unfinished,
         "unselected": sum(1 for v in views if not v["done"] and v["type"] != "sign_in"
                           and picked is not None and v["type"] not in picked),
         "remaining": [v["name"] for v in selected_views if not v["done"] and v["auto"]],
-        "manual": manual, "failed": failed, "pending": pending,
+        "manual": manual, "paid": paid, "unavailable": unavailable,
+        "failed": failed, "pending": pending,
         "verify_error": verify_error, "tasks": views, "card_pools": sorted(card_pools),
     }
 
@@ -935,7 +947,7 @@ class Task:
             result["error"] = str(exc)
         finally:
             save_state({**load_state(), **result, "fetched_at": int(time.time())})
-            self.log("info", f"完成 {done} · 失败 {fail} · 跳过 {skipped}")
+            self.log("info", f"完成 {done} · 失败 {fail} · 未处理 {skipped}")
             with self.lock:
                 self.summary = result
                 self.running = False
@@ -1032,7 +1044,8 @@ class Task:
                     skipped += tr["skipped"]
                     card_pools.update(tr.get("card_pools") or [])
                     tail = f"，本次自动完成 {tr['auto']} 项" if tr["auto"] else ""
-                    rest = f"（其余 {tr['skipped']} 项未完成）" if tr["skipped"] else ""
+                    rest = (f"（未完成 {tr['unfinished']} 项，其中本次未处理 {tr['skipped']} 项）"
+                            if tr["unfinished"] else "")
                     self.log("info", f"{name}：任务 {tr['done']}/{tr['total']}{tail}{rest}")
                     if tr["remaining"]:
                         names = "、".join(tr["remaining"][:6])
@@ -1049,8 +1062,15 @@ class Task:
                     if tr.get("manual"):
                         names = "、".join(tr["manual"][:6])
                         more = " 等" if len(tr["manual"]) > 6 else ""
-                        self.log("info", f"{name}：需要手动完成 {names}{more}"
-                                         f"（要真实看广告/听歌/分享/进页面等）")
+                        self.log("info", f"{name}：需要手动完成 {names}{more}")
+                    if tr.get("paid"):
+                        names = "、".join(tr["paid"][:6])
+                        more = " 等" if len(tr["paid"]) > 6 else ""
+                        self.log("info", f"{name}：付费任务已跳过 {names}{more}")
+                    if tr.get("unavailable"):
+                        names = "、".join(tr["unavailable"][:6])
+                        more = " 等" if len(tr["unavailable"]) > 6 else ""
+                        self.log("info", f"{name}：任务暂未开放 {names}{more}")
                     if tr["unselected"]:
                         self.log("info", f"{name}：未勾选 {tr['unselected']} 项")
                 except QQError as exc:

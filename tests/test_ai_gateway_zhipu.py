@@ -166,12 +166,26 @@ class ZhipuGatewayTests(unittest.TestCase):
         for response, expected in [
             (Response(400, json_value={"status": 10001}), "already"),
             (Response(json_value={"status": 0, "result": {"score": 5}}), "success"),
+            (Response(json_value={"status": 200, "result": {"score": "5"}}), "success"),
+            (Response(json_value={"status": 0, "data": {"score": 5}}), "success"),
             (Response(json_value={"status": 0, "result": {"score": 0}}), "failed"),
+            (Response(json_value={"status": 0, "result": {"score": "NaN"}}), "failed"),
             (Response(json_value={"status": 7001, "result": {"score": 5}}), "failed"),
         ]:
             with self.subTest(expected=expected):
                 provider = zhipu.ZhipuProvider(http=FakeHttp(checkin=response))
                 self.assertEqual(provider.checkin({"access_token": "opaque"})["status"], expected)
+
+    def test_unconfirmed_daily_checkin_reports_only_response_shape(self):
+        response = Response(json_value={"status": 0, "result": {"point": 8, "private_value": "do-not-log"}})
+        provider = zhipu.ZhipuProvider(http=FakeHttp(checkin=response))
+
+        result = provider.checkin({"access_token": "opaque"})
+
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("status=0", result["message"])
+        self.assertIn("point,private_value", result["message"])
+        self.assertNotIn("do-not-log", result["message"])
 
     def test_daily_checkin_refreshes_expired_token_once(self):
         http = FakeHttp(checkin=[

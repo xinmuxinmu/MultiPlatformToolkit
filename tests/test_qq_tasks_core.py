@@ -72,6 +72,8 @@ class TaskRoutingTests(unittest.TestCase):
         self.assertEqual(out["auto"], 0)
         self.assertFalse(out["tasks"][0]["done"])
         self.assertEqual(out["pending"], ["免费任务"])
+        self.assertEqual(out["unfinished"], 1)
+        self.assertEqual(out["skipped"], 0)
 
     def test_failed_readback_never_invents_completed_status(self):
         before = task("set_medal_role_ai_player_singer", BtnJumpURL=COMPANION_URL)
@@ -95,6 +97,10 @@ class TaskRoutingTests(unittest.TestCase):
         client.play_browser_game.assert_not_called()
         client.draw_card.assert_not_called()
         client.set_free_companion.assert_not_called()
+        result = core.complete_medal_tasks(client_for(before), "1")
+        self.assertEqual(result["skipped"], len(before))
+        self.assertEqual(len(result["paid"]), 1)
+        self.assertEqual(len(result["manual"]), len(before) - 1)
 
     def test_draw_requires_explicit_resource_switch_and_is_bounded_to_one(self):
         before = task("medal_card_draw_card", BtnJumpURL=CARD_URL, TotalTimes=8)
@@ -112,6 +118,7 @@ class TaskRoutingTests(unittest.TestCase):
             out = core.complete_medal_tasks(client, "1", selected)
             client.play_browser_game.assert_not_called()
             self.assertEqual(out["unselected"], 1)
+            self.assertEqual(out["skipped"], 1)
 
     def test_already_completed_task_does_not_write(self):
         before = task("mini_game", BtnJumpURL=GAME_URL, Status="2")

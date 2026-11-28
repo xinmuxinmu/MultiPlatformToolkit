@@ -6,6 +6,21 @@ AI 签到页的“反代集合（统一 API Key）”入口进入网关，可批
 
 本机服务默认地址为 `http://127.0.0.1:18000`，兼容 API Base URL 为 `http://127.0.0.1:18000/v1`。从“复制 API Key”取得密钥，再请求 `GET /v1/models` 查看平台模型目录。聊天接口支持 OpenAI `POST /v1/chat/completions` 与 Anthropic `POST /v1/messages`，含流式输出和 function/tool calls；具体模型的工具、图片输入等能力取决于上游。模型名使用 `平台/模型` 格式；同平台启用账号按轮换顺序分配，也可用 `X-AI-Account` 指定账号 ID。当前不提供 embeddings、图像生成等未验证能力；WorkBuddy 目录中明确标记为图片、视频生成的条目会被过滤。目录查询成功不代表每个模型都已逐项实测。
 
+兼容 API 区域会自动查询当前模型目录，并分别展示客户端填写说明、可搜索的模型列表、平台能力和请求示例。模型列表支持按平台筛选、复制完整模型 ID；选择模型后，请求示例与能力限制同步更新。复制接入说明和查看示例不会读取密钥或发送聊天请求；API Key 仅在明确点击复制或导出时取得。导出的 JSON 保留 `base_url`、`api_key`、`models`，另加 `connection`，包含完整端点、认证方式、平台限制与占位密钥示例。
+
+Trae 等客户端添加自定义模型时，各字段对应如下（地址以页面实际显示为准）：
+
+| 客户端字段 | 填写方式 |
+| --- | --- |
+| API 格式 | OpenAI Chat Completions；Anthropic 格式仅用于目录中明确支持的平台。 |
+| 请求地址，完整 URL 关闭 | 页面 Base URL，例如 `http://127.0.0.1:18000/v1`，不额外追加路径。 |
+| 请求地址，完整 URL 打开 | 完整聊天端点，例如 `http://127.0.0.1:18000/v1/chat/completions`。 |
+| 模型 ID | 从本页目录复制完整的 `平台/模型`。例如目录中的 `workbuddy/deepseek-v4.1-flash` 不能省略成 `deepseek-v4.1-flash`，也不要自行猜测平台前缀。 |
+| 模型显示名称 | 自定义可读名称，不参与路由；可以使用平台名与模型名。 |
+| API 密钥 | 使用“复制 API Key”取得的统一网关密钥，不使用平台登录 token。 |
+
+模型 ID 格式错误会在请求上游前返回 HTTP 400，并提示复制完整 ID。格式正确不代表所有 IDE 功能均兼容；尤其 Trae CN、智谱清言当前不接受 IDE 默认 Agent 请求中的 system、历史消息和工具。平台能力页会明确列出这些限制。仅本机可访问的 `GET /ai-gateway/api/connection` 提供同一套公共接入信息，不含 API Key、账号身份或签名模型配置；它只查询模型目录，不调用聊天接口。
+
 账号凭据和网关 API Key 存于 `data/ai_gateway/accounts.json`，由 Windows DPAPI 绑定当前 Windows 用户加密；换 Windows 用户后不能解密。账号管理接口只允许本机访问，兼容 API 需要 Bearer API Key 或 `x-api-key`。
 模型目录查询会跳过无法解密的单个账号；若该平台提供本机登录态导入，则按账号 ID 尝试恢复对应密文后再查询，避免一个损坏账号遮挡其他可用平台。
 

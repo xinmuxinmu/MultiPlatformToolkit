@@ -96,6 +96,65 @@ class GatewayRouteTests(unittest.TestCase):
         self.assertEqual(response.json()["imported"], 1)
         self.assertEqual(response.json()["results"][0]["provider"], "fake")
 
+    def test_connection_returns_public_info_and_only_queries_catalog_and_state_once(self):
+        catalog = [{"id": "fake/text", "encrypted_model_params": "private-signed-model-data"}]
+        with patch.object(self.gateway, "models", return_value=catalog) as models, \
+                patch.object(self.gateway, "state", wraps=self.gateway.state) as state, \
+                patch.object(self.gateway, "chat") as chat, \
+                patch.object(self.store, "api_key") as key:
+            response = self.client.get("/ai-gateway/api/connection")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        models.assert_called_once_with()
+        state.assert_called_once_with()
+        chat.assert_not_called()
+        key.assert_not_called()
+        info = response.json()
+        self.assertEqual(info["base_url"], "http://127.0.0.1:8765/v1")
+        self.assertEqual(info["summary"], {"model_count": 1, "chat_provider_count": 1, "enabled_account_count": 1})
+        self.assertEqual(info["models"][0]["id"], "fake/text")
+        self.assertEqual(info["example"]["body"]["model"], "fake/text")
+        for secret in ("private-account-token", "private-signed-model-data", self.store.key):
+            self.assertNotIn(secret, response.text)
+        self.assertNotIn("external_id", response.text)
+        self.assertNotIn("credential", response.text)
+
+    def test_connection_rejects_foreign_origin_host_and_remote_clients_before_queries(self):
+        with patch.object(self.gateway, "models") as models, \
+                patch.object(self.gateway, "state") as state, \
+                patch.object(self.gateway, "chat") as chat:
+            for headers in ({"Origin": "https://evil.invalid"}, {"Host": "evil.invalid"}):
+                response = self.client.get("/ai-gateway/api/connection", headers=headers)
+                self.assertEqual(response.status_code, 403)
+            with TestClient(self.app, base_url="http://127.0.0.1:8765", client=("192.0.2.10", 1234)) as remote:
+                self.assertEqual(remote.get("/ai-gateway/api/connection").status_code, 403)
+            models.assert_not_called()
+            state.assert_not_called()
+            chat.assert_not_called()
+
+    def test_connection_model_lookup_failure_is_safe_and_does_not_attempt_chat(self):
+        for error, code in ((RuntimeError("private-upstream-token"), "upstream_error"),
+                            (GatewayError("模型目录暂不可用", 502, "models_unavailable"), "models_unavailable")):
+            with self.subTest(code=code), \
+                    patch.object(self.gateway, "models", side_effect=error) as models, \
+                    patch.object(self.gateway, "state") as state, \
+                    patch.object(self.gateway, "chat") as chat:
+                response = self.client.get("/ai-gateway/api/connection")
+                self.assertEqual(response.status_code, 502)
+                self.assertEqual(response.json()["error"]["code"], code)
+                self.assertNotIn("private-upstream-token", response.text)
+                models.assert_called_once_with()
+                state.assert_not_called()
+                chat.assert_not_called()
+
+    def test_existing_management_models_contract_is_preserved(self):
+        response = self.client.get("/ai-gateway/api/models")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"object": "list", "data": [
+            {"id": "fake/text", "object": "model", "created": 0, "owned_by": "fake"},
+            {"id": "fake/tools", "object": "model", "created": 0, "owned_by": "fake"},
+        ]})
+
     def test_openai_nonstream_collects_tools_usage_and_native_model_name(self):
         self.provider.frames = tool_frames()
         response = self.client.post("/v1/chat/completions", headers=self.headers, json=self.payload)
@@ -184,6 +243,21 @@ class GatewayRouteTests(unittest.TestCase):
         self.assertEqual(invalid.status_code, 400)
         invalid = self.client.post("/v1/chat/completions", headers=self.headers, json={**self.payload, "n": 2})
         self.assertEqual(invalid.status_code, 400)
+        self.assertEqual(self.provider.requests, [])
+
+    def test_invalid_model_ids_return_actionable_errors_without_catalog_lookup(self):
+        with patch.object(self.gateway, "models") as models, \
+                patch.object(self.gateway, "select_account") as account:
+            for model in (None, "deepseek-v4.1-flash", "/text", "  /text", "fake/", "fake/  "):
+                with self.subTest(model=model):
+                    response = self.client.post("/v1/chat/completions", headers=self.headers,
+                                                json={**self.payload, "model": model})
+                    self.assertEqual(response.status_code, 400)
+                    self.assertEqual(response.json()["error"]["code"], "invalid_model")
+                    self.assertIn("复制完整 ID", response.json()["error"]["message"])
+                    self.assertIn("workbuddy/default", response.json()["error"]["message"])
+            models.assert_not_called()
+            account.assert_not_called()
         self.assertEqual(self.provider.requests, [])
 
 

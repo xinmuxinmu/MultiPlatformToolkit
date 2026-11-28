@@ -210,6 +210,31 @@ class GatewayCoreTests(unittest.TestCase):
     def add_account(self, identity="one", provider="fake"):
         return self.store.upsert(provider, {"token": "private"}, identity, identity)
 
+    def test_invalid_model_id_is_actionable_without_catalog_provider_or_account_access(self):
+        invalid_ids = (None, 123, {}, "", "deepseek-v4.1-flash", "/text", "  /text",
+                       "fake/", "fake/  ")
+        with patch.object(self.gateway, "provider") as provider, \
+                patch.object(self.gateway, "models") as models, \
+                patch.object(self.gateway, "select_account") as account:
+            for model in invalid_ids:
+                with self.subTest(model=model):
+                    with self.assertRaises(GatewayError) as caught:
+                        list(self.gateway.chat({"model": model, "messages": [{"role": "user", "content": "Hi"}]}))
+                    self.assertEqual(caught.exception.status_code, 400)
+                    self.assertEqual(caught.exception.code, "invalid_model")
+                    self.assertIn("复制完整 ID", str(caught.exception))
+                    self.assertIn("workbuddy/default", str(caught.exception))
+            provider.assert_not_called()
+            models.assert_not_called()
+            account.assert_not_called()
+
+    def test_qualified_model_preserves_nested_upstream_model_name(self):
+        self.add_account()
+        chunks = list(self.gateway.chat({"model": "fake/vendor/text",
+                                         "messages": [{"role": "user", "content": "Hi"}]}))
+        self.assertEqual(self.provider.requests[0]["model"], "vendor/text")
+        self.assertEqual(chunks[0]["model"], "fake/vendor/text")
+
     def test_bulk_local_import_continues_after_one_provider_fails(self):
         providers = {
             "ready": LocalImportProvider("ready", chat=True, rows=[

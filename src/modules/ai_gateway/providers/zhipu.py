@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import math
 import os
 import re
 import secrets
@@ -506,7 +507,38 @@ class ZhipuProvider:
             result = self._json("POST", "/chatglm/member-api/member/daily_login_score", credential)
         if result.get("status") == 10001:
             return outcome("already", "智谱接口确认今日已领取登录积分")
-        score = (result.get("result") or {}).get("score")
-        if result.get("status") in (0, 200) and isinstance(score, (int, float)) and not isinstance(score, bool) and score > 0:
+        payload = result.get("result")
+        payload_path = "result"
+        if not isinstance(payload, dict) and isinstance(result.get("data"), dict):
+            # Some API wrappers expose the same explicit score under `data`.
+            payload = result["data"]
+            payload_path = "data"
+        raw_score = payload.get("score") if isinstance(payload, dict) else None
+        score = None
+        if isinstance(raw_score, (int, float)) and not isinstance(raw_score, bool):
+            try:
+                score = float(raw_score)
+            except OverflowError:
+                pass
+        elif isinstance(raw_score, str) and re.fullmatch(r"(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)", raw_score.strip()):
+            # JSON clients occasionally stringify numeric reward amounts.
+            try:
+                score = float(raw_score.strip())
+            except OverflowError:
+                pass
+        if (result.get("status") in (0, 200) and score is not None and
+                math.isfinite(score) and score > 0):
             return outcome("success", "智谱每日登录积分领取成功", score)
-        return outcome("failed", "智谱每日积分接口未明确确认奖励或今日已领取")
+        if isinstance(payload, dict):
+            result_shape = payload_path + "字段=" + ",".join(sorted(str(key)[:40] for key in payload)[:12])
+        else:
+            result_shape = "result类型=" + type(result.get("result")).__name__
+        status = result.get("status")
+        if isinstance(status, (int, str)):
+            safe_status = str(status).replace("\r", " " ).replace("\n", " " )[:40]
+            status_shape = f"status={safe_status}"
+        else:
+            status_shape = f"status类型={type(status).__name__}"
+        top_keys = ",".join(sorted(str(key)[:40] for key in result)[:12])
+        return outcome("failed",
+                       f"智谱每日积分接口未明确确认奖励或今日已领取（{status_shape}；{result_shape}；响应字段={top_keys}）")
