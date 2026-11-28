@@ -6,6 +6,7 @@ import sys
 import tempfile
 import time
 import unittest
+import uuid
 from unittest.mock import patch
 
 import httpx
@@ -83,6 +84,18 @@ class WorkBuddyGatewayTests(unittest.TestCase):
         self.assertEqual(models[0]["id"], "model-real")
         self.assertEqual(paths, ["/v3/config", "/v2/enterprises/personal/models"])
 
+    def test_catalog_excludes_generators_but_keeps_chat_with_image_input(self):
+        provider = self.provider(lambda r: httpx.Response(200, json={
+            "code": 0, "data": {"models": [
+                {"id": "vision-chat", "supportsImages": True},
+                {"id": "image-generator", "tags": ["text-to-image"]},
+                {"id": "video-generator", "tags": ["image-to-video", "text-to-video"]},
+                {"id": "plain-chat", "tags": ["fast", {}]},
+                "legacy-chat",
+            ]}}))
+        rows = provider.models({"access_token": "access"})
+        self.assertEqual([row["id"] for row in rows], ["vision-chat", "plain-chat", "legacy-chat"])
+
     def test_stream_preserves_tools_reasoning_usage_and_excludes_refresh(self):
         frames = [
             {"choices": [{"index": 0, "delta": {"reasoning_content": "think", "tool_calls": [{
@@ -115,6 +128,57 @@ class WorkBuddyGatewayTests(unittest.TestCase):
                 provider = self.provider(lambda r: httpx.Response(200, text=stream))
                 with self.assertRaises(GatewayError):
                     list(provider.chat({"access_token": "access"}, {"model": "m", "messages": [{"role": "user", "content": "hello"}]}))
+
+    def test_chat_rejection_reports_business_code_without_upstream_details(self):
+        provider = self.provider(lambda r: httpx.Response(400, json={
+            "code": 11128, "msg": "secret-token", "requestId": "private-request",
+        }), WorkBuddyAIProvider)
+        with self.assertRaises(GatewayError) as caught:
+            list(provider.chat({"access_token": "access", "realm": "intl"}, {
+                "model": "default-model", "messages": [{"role": "user", "content": "hello"}],
+            }))
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertEqual(caught.exception.code, "upstream_request_rejected")
+        self.assertIn("11128", str(caught.exception))
+        self.assertNotIn("secret-token", str(caught.exception))
+        self.assertNotIn("private-request", str(caught.exception))
+
+    def test_international_chat_uses_desktop_conversation_headers(self):
+        seen = []
+        def handler(request):
+            self.assertEqual(request.url.host, "www.workbuddy.ai")
+            self.assertEqual(request.headers["X-IDE-Type"], "WorkBuddy")
+            self.assertEqual(request.headers["X-Product"], "SaaS")
+            self.assertEqual(request.headers["X-Domain"], "www.workbuddy.ai")
+            self.assertEqual(request.headers["X-Tenant-Id"], "enterprise")
+            self.assertNotIn("X-Refresh-Token", request.headers)
+            fields = [request.headers[name] for name in (
+                "X-Conversation-ID", "X-Conversation-Request-ID",
+                "X-Conversation-Message-ID", "acp-connection-id")]
+            for value in fields:
+                self.assertEqual(str(uuid.UUID(value)), value)
+            seen.append(fields)
+            frame = {"choices": [{"index": 0, "delta": {"content": "OK"}, "finish_reason": "stop"}]}
+            return httpx.Response(200, text="data: " + json.dumps(frame) + "\n\ndata: [DONE]\n\n")
+        provider = self.provider(handler, WorkBuddyAIProvider)
+        credential = {"access_token": "access", "refresh_token": "refresh",
+                      "realm": "intl", "enterprise_id": "enterprise"}
+        for _ in range(2):
+            list(provider.chat(credential, {"model": "fast-model",
+                "messages": [{"role": "user", "content": "hello"}]}))
+        self.assertEqual(len(set(seen[0] + seen[1])), 8)
+
+    def test_chat_http_error_handles_nonjson_and_untrusted_business_codes(self):
+        for body in (b"not JSON", b'[]', b'{"code": "secret-token"}', b'{"code": true}'):
+            with self.subTest(body=body):
+                provider = self.provider(lambda r: httpx.Response(429, content=body))
+                with self.assertRaises(GatewayError) as caught:
+                    list(provider.chat({"access_token": "access"}, {
+                        "model": "m", "messages": [{"role": "user", "content": "hello"}],
+                    }))
+                self.assertEqual(caught.exception.status_code, 429)
+                self.assertEqual(caught.exception.code, "upstream_error")
+                self.assertNotIn("secret-token", str(caught.exception))
 
     def test_local_import_decrypts_with_hidden_node_mode_and_no_http(self):
         with tempfile.TemporaryDirectory() as folder:

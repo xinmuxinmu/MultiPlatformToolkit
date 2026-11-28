@@ -131,6 +131,17 @@ def overview_data(prefix, state, summary=None):
             accounts = state.get("accounts") or {}
             values = accounts.get("accounts") or [] if isinstance(accounts, dict) else accounts
             out["login"] = "复用 B站聊天登录态" if values else "请先登录 B站聊天账号"
+        if prefix == "/heybox":
+            app_ready = bool(state.get("app_logged_in"))
+            out["login"] = ("App 登录态已保存" if app_ready else
+                            "已保存网页登录态；需 App 短信登录" if configured else "需 App 短信登录")
+            if not app_ready:
+                out["notice"] = "请在设置中使用“App 短信登录”，验证成功后再刷新或执行任务。"
+            if isinstance(summary, dict):
+                if summary.get("error"):
+                    out["notice"] = "上次执行失败：" + str(summary["error"])
+                elif _num(summary.get("fail")) > 0:
+                    out["notice"] = f"上次执行有 {_num(summary['fail'])} 项任务失败，请查看运行日志。"
     elif prefix == "/signin":
         out["account"], out["detail"] = "平台签到账号", "微博超话 · 吾爱破解 · 百度贴吧"
         configured_count = sum(bool((config.get(key) or {}).get("cookie")) for key in NAMES if key in ("weibo", "pojie", "tieba"))

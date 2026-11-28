@@ -213,6 +213,18 @@ def _find_claimable(node, found=None):
     return found
 
 
+def _has_claimed_campaign(node) -> bool:
+    """Return true only for the campaign response's explicit claimed state."""
+    if isinstance(node, dict):
+        state = str(node.get("claimStatus") or "").upper()
+        if state in ("CLAIMED", "ALREADY_CLAIMED", "CLAIMED_TODAY"):
+            return True
+        return any(_has_claimed_campaign(value) for value in node.values())
+    if isinstance(node, list):
+        return any(_has_claimed_campaign(value) for value in node)
+    return False
+
+
 def _qoder_machine(base: str) -> dict:
     folder = ".qoder-cn" if "qoder.com.cn" in base else ".qoder"
     try:
@@ -252,8 +264,23 @@ QODER_ALT_HOST = {
 
 
 def _qoder_query(base: str, headers: dict) -> tuple[int, object]:
-    endpoint = base.rstrip("/") + "/sash/api/v1/me/campaigns?clientType=10"
-    req = urllib.request.Request(endpoint, headers=headers)
+    # Qoder's desktop client sends client/device identity as Cosy headers.  The
+    # API path itself has no query string; putting clientType in the URL can
+    # yield a 200 response with an empty campaign list.
+    endpoint = base.rstrip("/") + "/sash/api/v1/me/campaigns"
+    request_headers = dict(headers)
+    request_headers.setdefault("User-Agent", "Qoder")
+    request_headers.setdefault("Accept", "application/json")
+    request_headers.setdefault("Cosy-ClientType", "10")
+    try:
+        import qoder_cred
+
+        device, _ = qoder_cred.device(base)
+        for key, value in qoder_cred.device_headers(device).items():
+            request_headers.setdefault(key, value)
+    except Exception:  # noqa: BLE001 - token-only/PAT mode may have no local device profile
+        pass
+    req = urllib.request.Request(endpoint, headers=request_headers, method="GET")
     try:
         with urllib.request.urlopen(req, timeout=QODER_TIMEOUT) as resp:
             return resp.status, json.loads(resp.read().decode("utf-8", "replace"))
@@ -269,7 +296,7 @@ def _qoder_flow(base: str, token: str, cookie: str, dry: bool) -> dict:
     桌面端 token 只对「自己那个站点」有效（国际版 .sh / 国内版 .com.cn），
     拿错站点会 401。这里先按站点查，401 时用同一个 token 换另一个站点再试。
     """
-    headers = {"User-Agent": UA, "Accept": "application/json", "Content-Type": "application/json"}
+    headers = {"User-Agent": "Qoder", "Accept": "application/json", "Content-Type": "application/json"}
     if cookie:
         headers["Cookie"] = cookie
     if token:
@@ -312,7 +339,7 @@ def _qoder_flow(base: str, token: str, cookie: str, dry: bool) -> dict:
     if status != 200 or not isinstance(payload, dict):
         if status in (401, 403):
             return {"ok": False, "status": "failed",
-                    "message": "令牌被拒绝（HTTP 401）：桌面端登录态可能已过期，"
+                    "message": f"令牌被拒绝（HTTP {status}）：桌面端登录态可能已过期，"
                                "在 Qoder 客户端重新登录一次，或填 PAT（pt- 开头）"}
         return {"ok": False, "status": "failed",
                 "message": f"查询活动失败：{payload if isinstance(payload, str) else f'HTTP {status}'}"}
@@ -321,6 +348,11 @@ def _qoder_flow(base: str, token: str, cookie: str, dry: bool) -> dict:
     claimable = _find_claimable(payload)
     suffix = "" if used == base else f"（桌面端登录态属于 {used.split('//')[-1]}，已自动切过去）"
     if not claimable:
+        if _has_claimed_campaign(payload):
+            return {"ok": True, "status": "already", "message": "今日已签到" + suffix}
+        if payload.get("showCampaign") is True and payload.get("claimable") is False:
+            return {"ok": True, "status": "skipped",
+                    "message": "活动存在但当前不可领取（接口未提供已签到状态，无法确认今日是否已签）" + suffix}
         return {"ok": True, "status": "skipped",
                 "message": "当前没有可领取的签到活动（接口未提供已签到状态，无法确认今日是否已签）" + suffix}
 

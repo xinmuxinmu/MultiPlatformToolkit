@@ -355,10 +355,16 @@ class MusicClient:
 
     def play_browser_game(self, task: dict) -> dict:
         """在已登录的官方页面实际游玩；由勋章任务回读确认奖励。"""
-        from modules.qq_tasks.browser_games import play_browser_game, supports_browser_game
+        from modules.qq_tasks.browser_games import (BrowserGameError, play_browser_game,
+                                                    supports_browser_game)
         if not supports_browser_game(_task_url(task)):
             raise QQError("此小游戏尚无可验证的电脑端自动流程")
-        return self._open_task_page(task, action=play_browser_game)
+        def action(page):
+            try:
+                return play_browser_game(page)
+            except BrowserGameError as exc:
+                raise QQError(str(exc)) from None
+        return self._open_task_page(task, action=action)
 
     def set_free_companion(self, task: dict) -> dict:
         from modules.qq_tasks.free_actions import ActionError, select_free_companion
@@ -382,8 +388,9 @@ class MusicClient:
                     options["executable_path"] = str(browser_path)
                 browser = pw.chromium.launch(**options)
                 try:
-                    context = browser.new_context(user_agent=QQ_UA,
-                                                  viewport={"width": 430, "height": 900})
+                    context = browser.new_context(
+                        user_agent=QQ_UA, viewport={"width": 430, "height": 900},
+                        is_mobile=True, has_touch=True)
                     context.add_cookies([{"name": k, "value": v, "domain": ".y.qq.com",
                                           "path": "/"} for k, v in parse_cookie(self.cookie).items()])
                     page = context.new_page()
@@ -615,6 +622,13 @@ def _task_url(task: dict) -> str:
             if re.fullmatch(r"[A-Za-z0-9_-]+", container):
                 return "https://weibo.com/p/" + container
     url = str(task.get("BtnJumpURL") or "").strip().replace("&amp;", "&")
+    if typ == "mini_game_singer" and url.lower() in ("", "none"):
+        try:
+            ext_info = json.loads(task.get("ExtInfoStr") or "{}")
+        except (TypeError, ValueError):
+            ext_info = {}
+        if isinstance(ext_info, dict):
+            url = str(ext_info.get("BtnJumpURL") or "").strip()
     for _ in range(3):
         parsed = urllib.parse.urlparse(url)
         if parsed.scheme in ("http", "https"):
@@ -668,7 +682,9 @@ def _task_capability(task: dict, *, allow_card_draw: bool = False) -> tuple[str,
     if "game" in typ or "farm" in typ or typ in ("play_bounce", "play_guess"):
         from modules.qq_tasks.browser_games import supports_browser_game
         if supports_browser_game(_task_url(task)):
-            return "auto", "在官方盖楼页面实际操作，不看广告或购买体力，完成后核对任务进度"
+            if "starlight_game" in _task_url(task):
+                return "auto", "在官方翻卡页面实际翻牌；不看广告，结算后核对任务进度"
+            return "auto", "在官方游戏页面实际操作，不看广告或购买资源，完成后核对任务进度"
         return "manual", "需要在官方页面实际游玩，不能用虚构进度替代"
     if "skin_blind_box" in str(task.get("BtnJumpURL") or ""):
         return "manual", "盲盒页面还需实际参与活动，仅浏览不足以完成"

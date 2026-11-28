@@ -85,6 +85,17 @@ class GatewayRouteTests(unittest.TestCase):
         self.assertNotIn("private-token", done.text)
         self.assertNotIn("credential", done.text)
 
+    def test_management_bulk_local_import_route_returns_per_provider_results(self):
+        self.gateway.import_all_local = lambda: {
+            "results": [{"provider": "fake", "status": "imported", "count": 1}],
+            "imported": 1, "failed": 0, "chat_providers": ["fake"]}
+
+        response = self.client.post("/ai-gateway/api/import-local", json={})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["imported"], 1)
+        self.assertEqual(response.json()["results"][0]["provider"], "fake")
+
     def test_openai_nonstream_collects_tools_usage_and_native_model_name(self):
         self.provider.frames = tool_frames()
         response = self.client.post("/v1/chat/completions", headers=self.headers, json=self.payload)

@@ -23,3 +23,6 @@ modules/*/data/
 .qoder-input-images/
 src/modules/*/data/
 src/web_ui/**/node_modules/
+
+# Local provider sessions contain account credentials
+**/.qoder_session.json

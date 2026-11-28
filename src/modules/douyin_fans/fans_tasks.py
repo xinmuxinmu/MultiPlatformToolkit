@@ -111,6 +111,9 @@ def _task(item, index, secrets):
         "status": status, "source": "official_http_snapshot",
         "observed_text": "\n".join(part for part in (title, description, progress_text, button_text) if part),
         "progress": progress, "manual_url": "", "can_open": False,
+        # No server-provided task schema is trusted as a deep link. Known free
+        # tasks can still open the configured circle entry for manual handling.
+        "can_open_entry": task_id in {"heat_checkin", "live", "publish", "discussion", "invite"},
         "can_auto_checkin": False, "reason": reason,
         "api_task_type": task_type, "api_status": _integer(item.get("status")),
     }

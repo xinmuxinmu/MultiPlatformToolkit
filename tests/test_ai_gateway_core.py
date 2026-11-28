@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from modules.ai_gateway.base import GatewayError
-from modules.ai_gateway.core import Gateway
+from modules.ai_gateway.core import Gateway, default_providers
 from modules.ai_gateway.store import AccountStore
 
 
@@ -59,6 +59,30 @@ class FakeProvider:
             self.closed += 1
 
 
+class LocalCredentialProvider:
+    id = "zhipu"
+    name = "智谱清言"
+    capabilities = dict(login=True, local_import=True, chat=False, checkin=True)
+
+    def __init__(self, *, local_identity="same", local_token="fresh", failure_code="credential_expired"):
+        self.local_identity = local_identity
+        self.local_token = local_token
+        self.failure_code = failure_code
+        self.import_calls = 0
+        self.checkin_tokens = []
+
+    def import_local(self):
+        self.import_calls += 1
+        return [{"external_id": self.local_identity,
+                 "credential": {"access_token": self.local_token}}]
+
+    def checkin(self, credential, dry=False):
+        self.checkin_tokens.append(credential.get("access_token"))
+        if credential.get("access_token") == "stale":
+            raise GatewayError("expired", 401, self.failure_code)
+        return {"status": "success", "message": "claimed"}
+
+
 class MemoryStore:
     """A test store with public metadata and independent credential copies."""
     def __init__(self):
@@ -87,6 +111,36 @@ class MemoryStore:
 
     def api_key(self, rotate=False):
         return self.key
+
+
+class LockedCredentialStore(MemoryStore):
+    def credential(self, account_id):
+        raise GatewayError("vault locked", 503, "vault_unavailable")
+
+
+class PartiallyLockedCredentialStore(MemoryStore):
+    def __init__(self, locked_id=None):
+        super().__init__()
+        self.locked_id = locked_id
+
+    def credential(self, account_id):
+        if account_id == self.locked_id:
+            raise GatewayError("vault locked", 503, "vault_unavailable")
+        return super().credential(account_id)
+
+
+class LocalImportProvider:
+    def __init__(self, provider_id, *, rows=None, error=None, chat=False):
+        self.id = provider_id
+        self.name = provider_id.upper()
+        self.capabilities = dict(login=False, local_import=True, chat=chat, checkin=False)
+        self.rows = rows or []
+        self.error = error
+
+    def import_local(self):
+        if self.error:
+            raise self.error
+        return copy.deepcopy(self.rows)
 
 
 @unittest.skipUnless(os.name == "nt", "real current-user DPAPI is Windows-only")
@@ -139,6 +193,15 @@ class AccountStoreTests(unittest.TestCase):
 
 
 class GatewayCoreTests(unittest.TestCase):
+    def test_unimplemented_checkin_platforms_are_visible_without_gateway_capabilities(self):
+        providers = default_providers()
+        for provider_id in ("minimax", "dumate", "lobster"):
+            with self.subTest(provider=provider_id):
+                provider = providers[provider_id]
+                for capability in ("chat", "login", "local_import", "checkin"):
+                    self.assertFalse(provider.capabilities[capability])
+                self.assertIn("AI 签到页", provider.capabilities["reason"])
+
     def setUp(self):
         self.store = MemoryStore()
         self.provider = FakeProvider()
@@ -146,6 +209,97 @@ class GatewayCoreTests(unittest.TestCase):
 
     def add_account(self, identity="one", provider="fake"):
         return self.store.upsert(provider, {"token": "private"}, identity, identity)
+
+    def test_bulk_local_import_continues_after_one_provider_fails(self):
+        providers = {
+            "ready": LocalImportProvider("ready", chat=True, rows=[
+                {"credential": {"token": "secret"}, "external_id": "user-1", "label": "User 1"}]),
+            "missing": LocalImportProvider("missing", error=GatewayError("client not found", 400)),
+            "empty": LocalImportProvider("empty"),
+        }
+        providers["unsupported"] = type("NoLocalImport", (), {
+            "id": "unsupported", "name": "Unsupported",
+            "capabilities": dict(login=False, local_import=False, chat=True, checkin=False),
+        })()
+        gateway = Gateway(store=self.store, providers=providers)
+
+        result = gateway.import_all_local()
+
+        self.assertEqual(result["imported"], 1)
+        self.assertEqual(result["failed"], 1)
+        self.assertEqual(result["chat_providers"], ["ready", "unsupported"])
+        by_provider = {row["provider"]: row for row in result["results"]}
+        self.assertEqual(by_provider["ready"]["status"], "imported")
+        self.assertEqual(by_provider["empty"]["status"], "empty")
+        self.assertEqual(by_provider["missing"]["status"], "failed")
+        self.assertEqual(by_provider["unsupported"]["status"], "unsupported")
+        self.assertEqual(self.store.credential("0"), {"token": "secret"})
+
+    def test_zhipu_expired_account_refreshes_only_matching_local_identity(self):
+        provider = LocalCredentialProvider()
+        gateway = Gateway(store=self.store, providers={"zhipu": provider})
+        account = self.store.upsert("zhipu", {"access_token": "stale"}, "same", "Saved label")
+
+        result = gateway.checkin("zhipu")
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(provider.import_calls, 1)
+        self.assertEqual(provider.checkin_tokens, ["stale", "fresh"])
+        self.assertEqual(self.store.credential(account["id"]), {"access_token": "fresh"})
+        saved = self.store.accounts("zhipu")[0]
+        self.assertEqual(saved["id"], account["id"])
+        self.assertEqual(saved["label"], "Saved label")
+
+    def test_zhipu_expired_account_does_not_overwrite_mismatched_local_identity(self):
+        provider = LocalCredentialProvider(local_identity="different")
+        gateway = Gateway(store=self.store, providers={"zhipu": provider})
+        account = self.store.upsert("zhipu", {"access_token": "stale"}, "same")
+
+        result = gateway.checkin("zhipu")
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(provider.checkin_tokens, ["stale"])
+        self.assertEqual(self.store.credential(account["id"]), {"access_token": "stale"})
+
+    def test_zhipu_does_not_import_local_credentials_for_other_failures_or_dry_runs(self):
+        for dry, failure_code in ((False, "upstream_error"), (True, "credential_expired")):
+            with self.subTest(dry=dry, failure_code=failure_code):
+                store = MemoryStore()
+                provider = LocalCredentialProvider(failure_code=failure_code)
+                gateway = Gateway(store=store, providers={"zhipu": provider})
+                store.upsert("zhipu", {"access_token": "stale"}, "same")
+
+                gateway.checkin("zhipu", dry=dry)
+
+                self.assertEqual(provider.import_calls, 0)
+                self.assertEqual(provider.checkin_tokens, ["stale"])
+
+    def test_workbuddy_recovers_locked_vault_only_for_the_matching_local_account(self):
+        store = LockedCredentialStore()
+        provider = LocalCredentialProvider()
+        gateway = Gateway(store=store, providers={"workbuddy": provider})
+        account = store.upsert("workbuddy", {"access_token": "unreadable"}, "same", "Saved label")
+
+        result = gateway.checkin("workbuddy")
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(provider.import_calls, 1)
+        self.assertEqual(provider.checkin_tokens, ["fresh"])
+        self.assertEqual(store.credentials[account["id"]], {"access_token": "fresh"})
+        self.assertEqual(store.accounts("workbuddy")[0]["id"], account["id"])
+
+    def test_workbuddy_does_not_use_a_local_credential_for_another_account(self):
+        store = LockedCredentialStore()
+        provider = LocalCredentialProvider(local_identity="different")
+        gateway = Gateway(store=store, providers={"workbuddy": provider})
+        account = store.upsert("workbuddy", {"access_token": "unreadable"}, "same")
+
+        result = gateway.checkin("workbuddy")
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(provider.import_calls, 1)
+        self.assertEqual(provider.checkin_tokens, [])
+        self.assertEqual(store.credentials[account["id"]], {"access_token": "unreadable"})
 
     def test_simultaneous_logins_keep_private_state_and_save_once(self):
         first = self.gateway.start_login("fake")
@@ -192,6 +346,47 @@ class GatewayCoreTests(unittest.TestCase):
         self.store.upsert("fake", {"token": "healthy"}, "working", "Working")
         self.assertEqual({row["id"] for row in self.gateway.models()}, {"fake/text", "fake/tools"})
 
+    def test_models_recovers_one_unreadable_account_from_matching_local_session(self):
+        class RecoverProvider(LocalImportProvider):
+            def __init__(self):
+                super().__init__("recover", chat=True, rows=[
+                    {"credential": {"token": "desktop"}, "external_id": "same"}])
+
+            def models(self, credential):
+                self.last_credential = credential
+                return ["model"]
+
+        store = PartiallyLockedCredentialStore()
+        provider = RecoverProvider()
+        gateway = Gateway(store=store, providers={"recover": provider})
+        account = store.upsert("recover", {"token": "old"}, "same", "Saved")
+        store.locked_id = account["id"]
+
+        self.assertEqual([row["id"] for row in gateway.models()], ["recover/model"])
+        self.assertEqual(provider.last_credential, {"token": "desktop"})
+
+    def test_chat_recovers_unreadable_account_from_matching_local_session(self):
+        class RecoverProvider(LocalImportProvider):
+            def __init__(self):
+                super().__init__("recover", chat=True, rows=[
+                    {"credential": {"token": "desktop"}, "external_id": "same"}])
+                self.last_credential = None
+
+            def chat(self, credential, payload):
+                self.last_credential = credential
+                yield {"choices": [{"finish_reason": "stop"}]}
+
+        store = PartiallyLockedCredentialStore()
+        provider = RecoverProvider()
+        gateway = Gateway(store=store, providers={"recover": provider})
+        account = store.upsert("recover", {"token": "old"}, "same", "Saved")
+        store.locked_id = account["id"]
+
+        chunks = list(gateway.chat({"model": "recover/model",
+                                    "messages": [{"role": "user", "content": "Hi"}]}))
+        self.assertEqual(chunks[0]["model"], "recover/model")
+        self.assertEqual(provider.last_credential, {"token": "desktop"})
+
     def test_expired_or_cancelled_login_never_polls(self):
         row = self.gateway.start_login("fake")
         self.gateway.sessions[row["id"]]["expires_at"] = 0
@@ -221,6 +416,16 @@ class GatewayCoreTests(unittest.TestCase):
         self.provider.frames = self.provider.frames[:1]
         with self.assertRaises(GatewayError) as caught:
             list(self.gateway.chat({"model": "fake/text", "messages": [{"role": "user", "content": "Hi"}]}))
+        self.assertEqual(caught.exception.code, "incomplete_stream")
+        self.assertEqual(self.provider.closed, 1)
+
+    def test_empty_finish_reason_does_not_hide_an_interrupted_desktop_stream(self):
+        self.add_account()
+        self.provider.frames = [{"choices": [{"index": 0, "delta": {"content": "partial"},
+                                              "finish_reason": ""}]}]
+        with self.assertRaises(GatewayError) as caught:
+            list(self.gateway.chat({"model": "fake/text",
+                                    "messages": [{"role": "user", "content": "Hi"}]}))
         self.assertEqual(caught.exception.code, "incomplete_stream")
         self.assertEqual(self.provider.closed, 1)
 

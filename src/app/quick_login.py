@@ -96,6 +96,14 @@ PLATFORMS = {
         "need": ("qqmusic_key", "qm_keyst"),
         "port": 9353,
     },
+    "heybox": {
+        "name": "小黑盒",
+        "login_url": "https://www.xiaoheihe.cn/",
+        "cookie_domains": ("xiaoheihe.cn", ".xiaoheihe.cn",
+                           "www.xiaoheihe.cn", "api.xiaoheihe.cn"),
+        "need": ("pkey",),
+        "port": 9354,
+    },
 }
 
 

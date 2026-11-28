@@ -45,10 +45,16 @@ try:
 except ImportError:  # pragma: no cover
     AES = None
 
-from platforms.base import BaseCheckin
+try:
+    from platforms.base import BaseCheckin
+except ModuleNotFoundError:  # Imported as modules.ai_checkin.vendor.platforms
+    from .base import BaseCheckin
 
 try:  # 多账号凭据存储（缺失时退化为桌面单账号模式）
-    from platforms import trae_auth
+    try:
+        from platforms import trae_auth
+    except ModuleNotFoundError:
+        from . import trae_auth
 except Exception:  # noqa: BLE001
     trae_auth = None
 

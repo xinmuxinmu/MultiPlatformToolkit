@@ -5,10 +5,12 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from modules.qq_tasks.browser_games import (BrowserGameError, play_browser_game,
-                                           supports_browser_game)
+                                           supports_browser_game, supports_flip_game)
 
 
 URL = "https://game.y.qq.com/tmegames/web_pages/qm_tonglou/index.html?singerId=123"
+FLIP_URL = ("https://y.qq.com/m/client/starlight_game/index.html"
+            "?_hidehd=1&biz=singermedal&issue=974436")
 
 
 class BrowserGameURLTests(unittest.TestCase):
@@ -26,6 +28,19 @@ class BrowserGameURLTests(unittest.TestCase):
         ):
             with self.subTest(url=url):
                 self.assertFalse(supports_browser_game(url))
+
+    def test_flip_page_requires_the_official_singer_medal_entry(self):
+        self.assertTrue(supports_flip_game(FLIP_URL))
+        for url in (
+            FLIP_URL.replace("https:", "http:"),
+            FLIP_URL.replace("y.qq.com", "evil.y.qq.com"),
+            FLIP_URL.replace("issue=974436", "issue="),
+            FLIP_URL.replace("biz=singermedal", "biz=medalcard"),
+            FLIP_URL + "&debug=1", FLIP_URL + "#preview",
+            FLIP_URL.replace("index.html", "other.html"),
+        ):
+            with self.subTest(url=url):
+                self.assertFalse(supports_flip_game(url))
 
 
 class BrowserGamePageTests(unittest.TestCase):
@@ -65,6 +80,38 @@ class BrowserGamePageTests(unittest.TestCase):
         </style>""" + body + "<script>window.adClicks=0;window.starts=0;window.releases=0;" + script + "</script>"
         self.context.route("**/*", lambda route: route.fulfill(status=200, content_type="text/html", body=html))
         self.page.goto(URL)
+
+    def load_flip(self, labels=None):
+        labels = labels or ["a", "b", "c", "a", "d", "b",
+                            "e", "c", "d", "f", "e", "f"]
+        cards = "".join(
+            f"<div class='starlight-card' data-index='{index}'>"
+            "<div class='card-face card-front'><img class='card-front__image' src='' alt=''></div>"
+            "<div class='card-face card-back'></div></div>"
+            for index in range(len(labels)))
+        body = (
+            "<main class='select-page'><div class='select-page__option'>简单</div>"
+            "<img class='select-page__remain-icon' src='change_active.test.png'><button class='select-page__confirm-btn'>确认选择</button></main>"
+            "<main class='game-page' style='display:none'><div class='game-board game-board--visible'>"
+            + cards + "</div><button class='game-bottom-btns__btn--ad' onclick='window.adClicks++'>"
+            + "看广告</button><main class='result-modal' style='display:none'><div class='result-modal__info'>完成</div></main></main>")
+        script = (
+            f"const faces={labels!r};let open=[];let matched=0;window.adClicks=0;"
+            "document.querySelector('.select-page__confirm-btn').onclick=()=>{"
+            "document.querySelector('.select-page').style.display='none';"
+            "document.querySelector('.game-page').style.display='block'};"
+            "document.querySelectorAll('.starlight-card').forEach((card,i)=>{"
+            "card.onclick=()=>{if(card.classList.contains('matched')||card.classList.contains('flipped'))return;"
+            "card.classList.add('flipped');card.querySelector('img').src='https://cards.invalid/'+faces[i]+'.png';"
+            "open.push(i);if(open.length===2){const [a,b]=open;const ca=document.querySelectorAll('.starlight-card')[a];"
+            "const cb=document.querySelectorAll('.starlight-card')[b];if(faces[a]===faces[b]){"
+            "ca.classList.add('matched');cb.classList.add('matched');matched+=2;open=[];"
+            "if(matched===faces.length)document.querySelector('.result-modal').style.display='block';"
+            "}else{setTimeout(()=>{ca.classList.remove('flipped');cb.classList.remove('flipped');open=[]},180)}}};});")
+        self.context.route("**/*", lambda route: route.fulfill(
+            status=200, content_type="text/html",
+            body="<!doctype html><meta charset='utf-8'>" + body + "<script>" + script + "</script>"))
+        self.page.goto(FLIP_URL)
 
     def test_real_clicks_skip_ads_and_wait_for_result_without_claiming_credit(self):
         self.load("""
@@ -127,6 +174,36 @@ class BrowserGamePageTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(BrowserGameError):
                 play_browser_game(self.page, timeout_seconds=value)
         self.assertEqual(self.page.evaluate("starts"), 0)
+
+    def test_flip_game_uses_revealed_cards_and_never_clicks_ad(self):
+        self.load_flip()
+        result = play_browser_game(self.page, timeout_seconds=8)
+        self.assertTrue(result["played"])
+        self.assertTrue(result["settled"])
+        self.assertEqual(result["matched_pairs"], 6)
+        self.assertEqual(self.page.evaluate("window.adClicks"), 0)
+
+    def test_flip_game_without_free_attempt_does_not_start(self):
+        self.load_flip()
+        self.page.locator(".select-page__remain-icon").evaluate(
+            "el => el.setAttribute('src', 'change.test.png')")
+        with self.assertRaisesRegex(BrowserGameError, "没有可用的免费翻卡次数"):
+            play_browser_game(self.page, timeout_seconds=3)
+        self.assertTrue(self.page.locator(".select-page").is_visible())
+
+    def test_flip_waits_for_official_config_before_starting(self):
+        self.load_flip()
+        self.page.locator(".select-page__confirm-btn").evaluate(
+            "el => { el.disabled = true; setTimeout(() => { el.disabled = false }, 120) }")
+        result = play_browser_game(self.page, timeout_seconds=4)
+        self.assertTrue(result["settled"])
+
+    def test_flip_does_not_treat_failure_modal_as_success(self):
+        self.load_flip(["a", "a", "b", "b", "c", "c",
+                        "d", "d", "e", "e", "f", "f"])
+        self.page.locator(".result-modal__info").evaluate("el => el.remove()")
+        with self.assertRaisesRegex(BrowserGameError, "等待官方结算"):
+            play_browser_game(self.page, timeout_seconds=5)
 
 
 if __name__ == "__main__":

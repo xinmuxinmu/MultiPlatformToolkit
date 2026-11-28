@@ -52,6 +52,6 @@ def checkin():
     return _start("checkin")
 
 
-@router.post("/api/open-task", summary="打开所选免费任务官方页面，内容由本人提交")
+@router.post("/api/open-task", summary="打开圈子官方入口，由本人处理所选免费任务")
 def open_task(body: dict = Body(...)):
     return _start("open-task", str(body.get("task_id") or ""))

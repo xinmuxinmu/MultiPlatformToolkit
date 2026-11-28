@@ -122,7 +122,8 @@ class FansPage(QWidget):
         manual_row = QHBoxLayout()
         self.limitations = _label("截图仅供参考；付费任务需本人在客户端处理。", "caption")
         manual_row.addWidget(self.limitations, 1)
-        self.manual_button = _button("打开任务", self.open_task, manual_row)
+        self.manual_button = _button("打开官方入口", self.open_task, manual_row)
+        self.manual_button.setToolTip("只打开圈子官方入口，不会直达或自动完成任务；请本人在抖音客户端操作后刷新核对。")
         self.manual_button.setEnabled(False)
         task_layout.addLayout(manual_row)
         tabs.addTab(task_page, "粉丝任务")
@@ -216,12 +217,16 @@ class FansPage(QWidget):
 
     def _selected(self, item, previous=None):
         task = self._tasks.get(item.data(0, Qt.ItemDataRole.UserRole), {}) if item else {}
+        can_open_entry = task.get("can_open_entry", task.get("can_open", True))
         self.manual_button.setEnabled(bool(task) and task.get("kind") != "paid"
-                                      and task.get("can_open", True) and not self._running)
+                                      and can_open_entry and not self._running)
         if task:
+            entry_note = ("此按钮只打开已配置的圈子官方入口，不会直达或自动执行任务；请本人在抖音客户端完成后刷新状态。"
+                          if can_open_entry else "当前没有安全确认的任务入口链接。")
             self.details.show_data({"任务": task.get("title"), "来源": task.get("source"), "状态": task.get("status"),
                                     "截图参考": task.get("reference"), "真实网页文字": task.get("observed_text"),
                                     "网页进度": task.get("progress"), "处理说明": task.get("reason"),
+                                    "官方入口": entry_note,
                                     "HTTP诊断": self._http_probe,
                                     "提醒": "截图奖励不是实时规则，网页播放器时间不是累计任务完成证明。"})
 

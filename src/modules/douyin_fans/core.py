@@ -612,7 +612,7 @@ class BrowserWorker(threading.Thread):
         self._navigate(page, url)
         if action in ("open", "open-task"):
             return {"status": "opened", "verified": False,
-                    "message": "已打开官方页面，请核对圈子和账号。评论、分享、投稿、讨论、邀请需本人在页面中提交；付费任务不自动执行。"}
+                    "message": "已打开官方圈子入口；这不是任务直达页或完成确认。请本人在抖音客户端操作后刷新核对进度。"}
         page.wait_for_timeout(1200)
         snapshot = _inspect(page, config)
         if action == "refresh":

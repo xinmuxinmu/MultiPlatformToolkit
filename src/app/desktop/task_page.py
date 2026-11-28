@@ -90,9 +90,16 @@ class TaskPage(QWidget):
         settings_layout.setSpacing(12)
         self.account_settings = Card("账号与登录")
         self.account_settings.content.addWidget(label(self._login_hint(), muted=True))
+        self.heybox_login_form = None
+        if prefix == "/heybox":
+            from .heybox_login import HeyboxLoginWidget
+            self.heybox_login_form = HeyboxLoginWidget(api, self)
+            self.heybox_login_form.message.connect(self.status.setText)
+            self.heybox_login_form.saved.connect(lambda: self.refresh(merge_login=True))
+            self.account_settings.content.addWidget(self.heybox_login_form)
         login_actions = QHBoxLayout()
         login_actions.setSpacing(8)
-        if prefix in ("/qq", "/netease-fans", "/heybox", "/kugou"):
+        if prefix in ("/qq", "/netease-fans", "/kugou"):
             if prefix == "/kugou":
                 self.add_button(login_actions, "App 扫码登录", self.kugou_login)
                 self.add_button(login_actions, "勋章网页登录", lambda: self.action("login"))
@@ -106,7 +113,8 @@ class TaskPage(QWidget):
             self.add_button(login_actions, "预览状态", lambda: self.run(dry=True))
             self.add_button(login_actions, "续期登录态", lambda: self.action("keepalive"))
         login_actions.addStretch()
-        self.account_settings.content.addLayout(login_actions)
+        if prefix != "/heybox":
+            self.account_settings.content.addLayout(login_actions)
         self.target_checks = {}
         if prefix == "/signin":
             choices = QHBoxLayout()
@@ -156,6 +164,7 @@ class TaskPage(QWidget):
         if self.prefix == "/bili-vip": return "默认复用 B站聊天账号。请先在 B站聊天页登录，或切换为手动 Cookie。"
         if self.prefix == "/kugou": return "App 扫码用于听歌与广告任务；勋章需另存网页登录态。两种登录态分别保留。"
         if self.prefix == "/signin": return "选择本次要签到的平台。微博和吾爱支持浏览器登录，贴吧可在下方手动填写 Cookie。"
+        if self.prefix == "/heybox": return "直接输入手机号接收短信并登录。仅遇到人机验证时打开验证页，通过后自动继续。"
         return "先在浏览器完成登录，再点“获取登录态”。手动 Cookie 输入默认收起。"
 
     def _mark_dirty(self, *args):
@@ -211,6 +220,8 @@ class TaskPage(QWidget):
         elif merge_login:
             self.settings.merge_login(config)
         self.config_loaded = True
+        if self.heybox_login_form:
+            self.heybox_login_form.update_state(state)
         if self.selection: self.selection.set_state(state)
         if self.task_picker:
             try: self.task_picker.set_state(state, self.settings.value())
@@ -265,6 +276,11 @@ class TaskPage(QWidget):
         self.api.post(self.prefix + "/api/save", saved, body=body, done=finished)
 
     def run(self, dry=False):
+        if self.prefix == "/heybox" and not self.state.get("app_logged_in"):
+            self.tabs.setCurrentIndex(1)
+            self.heybox_login_form.phone.setFocus()
+            self.status.setText("请先在下方输入手机号和短信验证码，登录并验证任务后再执行。")
+            return
         def saved(config):
             body = {}
             if self.prefix == "/ai-checkin":
@@ -365,8 +381,11 @@ class TaskPage(QWidget):
         if running:
             self._was_running = True
             self.status.setText("任务运行中…")
-        elif data.get("done"):
-            self.status.setText("任务已结束，详细结果见任务卡片和日志。")
+        elif data.get("done") and not (self.heybox_login_form and self.heybox_login_form.in_progress):
+            summary = data.get("summary") or {}
+            self.status.setText("任务执行失败，请查看日志并处理后重试。" if summary.get("error") else
+                                "本次执行仍有失败项，请查看日志。" if summary.get("fail") else
+                                "任务已结束，详细结果见任务卡片和日志。")
         if data.get("summary"):
             self._summary = data["summary"]
             self.result.show_data(self._summary)

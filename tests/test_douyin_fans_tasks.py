@@ -59,6 +59,8 @@ class FansTasksTests(unittest.TestCase):
             self.assertFalse(task["can_auto_checkin"])
             self.assertFalse(task["can_open"])
             self.assertEqual(task["manual_url"], "")
+        self.assertEqual([task["can_open_entry"] for task in out["tasks"]],
+                         [False, False, True, True, True, True, False])
         self.assertNotIn("not-returned", json.dumps(out))
 
     def test_status_two_is_not_completion_even_when_button_present(self):

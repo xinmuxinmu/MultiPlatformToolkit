@@ -29,6 +29,7 @@ CN_BASE = "https://copilot.tencent.com"
 INTL_BASE = "https://www.workbuddy.ai"
 PENDING_CODES = {"11217", "11218", "1001"}
 UA = "CLI/2.137.1 CodeBuddy/2.137.1"
+GENERATION_TAGS = {"text-to-image", "image-to-image", "text-to-video", "image-to-video"}
 
 
 def _flat(body: dict) -> dict:
@@ -230,6 +231,11 @@ class WorkBuddyProvider:
                 continue
             result = []
             for item in items:
+                # The same official catalog includes image/video generators,
+                # whose API is not implemented by this chat-only gateway.
+                tags = item.get("tags") if isinstance(item, dict) else None
+                if isinstance(tags, list) and any(isinstance(tag, str) and tag in GENERATION_TAGS for tag in tags):
+                    continue
                 model = item if isinstance(item, str) else _pick(item, "id", "modelId", "model", "name") if isinstance(item, dict) else ""
                 if model:
                     result.append({"id": model, "object": "model", "owned_by": self.id})
@@ -255,9 +261,7 @@ class WorkBuddyProvider:
             messages.insert(0, {"role": "system", "content": "You are a helpful assistant."})
         return out
 
-    def chat(self, credential: dict, payload: dict) -> Iterator[dict]:
-        self._ensure_token(credential)
-        realm = credential.get("realm") or self.realm
+    def _chat_headers(self, credential: dict) -> dict:
         headers = self._headers(credential)
         headers["Accept"] = "text/event-stream"
         uid = str(credential.get("uid") or "anonymous")
@@ -267,13 +271,35 @@ class WorkBuddyProvider:
         headers["X-No-Department-Info"] = "1"
         if not credential.get("enterprise_id"):
             headers["X-No-Enterprise-Id"] = "1"
+        return headers
+
+    def chat(self, credential: dict, payload: dict) -> Iterator[dict]:
+        self._ensure_token(credential)
+        realm = credential.get("realm") or self.realm
+        headers = self._chat_headers(credential)
         try:
             with self._client_factory(timeout=httpx.Timeout(180, connect=15), follow_redirects=False) as client:
                 with client.stream("POST", self._base(realm) + "/v2/chat/completions",
                                    headers=headers, json=self._prepare(payload)) as response:
                     if not response.is_success:
                         status = response.status_code if response.status_code in (400, 401, 402, 403, 404, 429) else 502
-                        raise GatewayError(f"WorkBuddy 对话失败（HTTP {response.status_code}）", status_code=status, code="upstream_error")
+                        # Preserve a useful business code without exposing the raw
+                        # response, which may contain request or account details.
+                        business = ""
+                        response.read()
+                        try:
+                            body = response.json()
+                            value = body.get("code") if isinstance(body, dict) else None
+                            if isinstance(value, (str, int)) and not isinstance(value, bool):
+                                value = str(value)
+                                if value.isascii() and value.isdecimal() and len(value) < 12:
+                                    business = value
+                        except (ValueError, UnicodeError):
+                            pass
+                        detail = f"，业务码 {business}" if business else ""
+                        code = "upstream_request_rejected" if business == "11128" else "upstream_error"
+                        raise GatewayError(f"WorkBuddy 对话失败（HTTP {response.status_code}{detail}）",
+                                           status_code=status, code=code)
                     saw_frame = False
                     data_lines = []
                     for line in response.iter_lines():
@@ -427,3 +453,23 @@ class WorkBuddyAIProvider(WorkBuddyProvider):
     realm = "intl"
     capabilities = {"login": True, "local_import": True, "chat": True, "checkin": False,
                     "reason": "国际版每日签到接口尚未核实，当前支持扫码授权、本地导入和聊天反代"}
+
+    def _chat_headers(self, credential: dict) -> dict:
+        headers = super()._chat_headers(credential)
+        # Official desktop 5.8.4 main/server.js: buildVlmGatewayHeaders
+        # and applyGatewayHeaders. The international gateway rejects the
+        # CLI identity without these conversation fields (business 11128).
+        headers.update({
+            "User-Agent": "WorkBuddy/5.8.4 WorkBuddy/5.8.4",
+            "X-IDE-Type": "WorkBuddy", "X-IDE-Name": "WorkBuddy",
+            "X-IDE-Version": "5.8.4", "X-Private-Data": "true",
+            "X-Product": "SaaS", "X-Domain": "www.workbuddy.ai",
+            "X-Agent-Intent": "craft", "X-Agent-Purpose": "conversation",
+            "x-codebuddy-request": "1",
+        })
+        for field in ("X-Conversation-ID", "X-Conversation-Request-ID",
+                      "X-Conversation-Message-ID", "acp-connection-id"):
+            headers[field] = str(uuid.uuid4())
+        if credential.get("enterprise_id"):
+            headers["X-Tenant-Id"] = str(credential["enterprise_id"])
+        return headers

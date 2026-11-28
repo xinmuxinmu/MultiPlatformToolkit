@@ -15,6 +15,8 @@ GAME_URL = "https://game.y.qq.com/tmegames/web_pages/qm_tonglou/index.html?singe
 COMPANION_URL = ("https://i2.y.qq.com/n3/client/pages/ai_player_companion/index.html"
                  "?roleId=123&bizId=456")
 CARD_URL = "https://i2.y.qq.com/n3/client/pages/draw_cards/index.html?pool_id=123-1"
+FLIP_URL = ("https://y.qq.com/m/client/starlight_game/index.html"
+            "?_hidehd=1&biz=singermedal&issue=974436")
 
 
 def task(kind="page_browsed", **extra):
@@ -48,6 +50,20 @@ class TaskRoutingTests(unittest.TestCase):
                 client.report_task.assert_not_called()
                 self.assertEqual(out["auto"], 1)
                 self.assertTrue(out["tasks"][0]["verified"])
+
+    def test_flip_task_uses_server_entry_nested_in_ext_info(self):
+        before = task(
+            "mini_game_singer", BtnJumpURL="none",
+            ExtInfoStr=(
+                '{"BtnJumpURL":"https://y.qq.com/m/client/starlight_game/'
+                'index.html?_hidehd=1&biz=singermedal&issue=974436"}'))
+        self.assertEqual(core._task_url(before), FLIP_URL)
+        self.assertEqual(core._task_capability(before)[0], "auto")
+        client = client_for([before], [{**before, "Status": 2, "AchievedTimes": 1}])
+        result = core.complete_medal_tasks(client, "974436")
+        client.play_browser_game.assert_called_once_with(before)
+        client.report_task.assert_not_called()
+        self.assertEqual(result["auto"], 1)
 
     def test_successful_action_without_server_progress_stays_pending(self):
         before = task("mini_game", BtnJumpURL=GAME_URL)

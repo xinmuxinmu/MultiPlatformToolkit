@@ -79,8 +79,31 @@ html{--task-accent:var(--mp-accent);--task-accent-fg:var(--mp-on-accent)}
       </div>
       <div class="note">
         Cookie 里要有 <b>pkey</b>。设备指纹 <code id="devId">—</code> 会自动生成并固定，别每次换。<br>
-        注意：网页登录只能保存账号信息；任务中心只认 App 抓包凭据，网页 pkey 调任务接口会返回
-        <code>relogin</code>。
+          注意：网页登录只能保存账号信息；任务中心需要 App 登录态，请在下方使用短信登录。
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="panel-head">
+        <span class="t">App 短信登录</span>
+        <span class="s" id="appLoginState">未登录</span>
+      </div>
+      <div class="field">
+        <label>手机号</label>
+        <input type="text" class="grow" id="appPhone" placeholder="+86 13800138000 或 13800138000">
+        <button class="btn-ghost btn-sm" id="appSendCode">发送验证码</button>
+      </div>
+      <div class="field">
+        <label>短信验证码</label>
+        <input type="text" class="grow" id="appCode" inputmode="numeric" placeholder="4 至 8 位数字">
+        <button class="btn-main btn-sm" id="appVerify">登录并验证任务</button>
+      </div>
+      <div class="field" id="captchaFields" style="display:none">
+        <label>人机验证</label>
+        <button class="btn-ghost btn-sm" id="appCaptcha">打开验证</button>
+      </div>
+      <div class="note" id="appLoginNote">
+        这一步只在你点击按钮时发送短信；成功后会先读取一次任务列表，再保存 App 会话。
       </div>
     </div>
 
@@ -256,6 +279,108 @@ function collectForm(){
   return out;
 }
 
+function captchaForm(){
+  return state.app_captcha_proof || undefined;
+}
+let appLoginBusy = false;
+function setAppLoginBusy(busy){
+  appLoginBusy = busy;
+  for (const id of ['appSendCode', 'appVerify', 'appCaptcha', 'appPhone', 'appCode']) {
+    $(id).disabled = busy;
+  }
+}
+function paintAppLogin(d){
+  if (!d) return;
+  state.app_login = d;
+  const logged = !!state.app_logged_in;
+  $('appLoginState').textContent = logged ? '已登录' : (d.stage === 'code' ? '待输入验证码' : (d.stage === 'captcha' ? '需要人机验证' : '未登录'));
+  $('appLoginNote').textContent = d.msg || (logged ? 'App 会话可用于任务列表与签到。' : '这一步只在你点击按钮时发送短信；成功后会先读取一次任务列表，再保存 App 会话。');
+  $('captchaFields').style.display = d.captcha_required ? '' : 'none';
+}
+function loadCaptchaScript(){
+  if (window.TencentCaptcha) return Promise.resolve();
+  if (window.__heyboxCaptchaLoading) return window.__heyboxCaptchaLoading;
+  window.__heyboxCaptchaLoading = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://turing.captcha.qcloud.com/TCaptcha.js';
+    script.onload = resolve;
+    script.onerror = () => {
+      window.__heyboxCaptchaLoading = null;
+      script.remove();
+      reject(new Error('人机验证组件加载失败'));
+    };
+    document.head.appendChild(script);
+  });
+  return window.__heyboxCaptchaLoading;
+}
+async function openAppCaptcha(){
+  if (appLoginBusy) return;
+  const d = state.app_login || {};
+  if (!d.captcha_app_id || !d.captcha_for) { toast('验证状态已过期，请重新操作', 'err'); return; }
+  setAppLoginBusy(true);
+  try{
+    await loadCaptchaScript();
+    const captcha = new window.TencentCaptcha(d.captcha_app_id, async result => {
+      if (!result || result.ret !== 0 || !result.ticket || !result.randstr) {
+        setAppLoginBusy(false);
+        toast('人机验证未完成，请重试', 'err'); return;
+      }
+      state.app_captcha_proof = {ticket: result.ticket, randstr: result.randstr, captcha_id: d.captcha_id};
+      const action = d.captcha_for;
+      try{
+        const body = {phone: $('appPhone').value.trim(), captcha: captchaForm()};
+        let url = API + '/app-login/send-code';
+        if (action === 'verify') { url = API + '/app-login/verify'; body.code = $('appCode').value.trim(); }
+        const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+        const next = await r.json();
+        if (next.stage === 'success') state.app_logged_in = true;
+        paintAppLogin(next);
+        state.app_captcha_proof = null;
+        if (!next.ok) throw new Error(next.error || '登录步骤失败');
+        if (next.stage === 'success') { state.app_logged_in = true; await syncFromServer(); refresh(); }
+        toast(next.msg || (action === 'send' ? '验证码已发送' : '登录验证完成'), 'ok');
+      }catch(e){ state.app_captcha_proof = null; toast(e.message || '登录步骤失败', 'err'); }
+      finally{ setAppLoginBusy(false); }
+    });
+    captcha.show();
+  }catch(e){ setAppLoginBusy(false); toast(e.message || '人机验证组件加载失败', 'err'); }
+}
+async function appSendCode(){
+  if (appLoginBusy) return;
+  const phone = $('appPhone').value.trim();
+  setAppLoginBusy(true);
+  try{
+    const r = await fetch(API + '/app-login/send-code', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({phone, captcha:captchaForm()})});
+    const d = await r.json();
+    if (d.stage === 'success') state.app_logged_in = true;
+    paintAppLogin(d);
+    if (!d.ok) throw new Error(d.error || '发送验证码失败');
+    state.app_captcha_proof = null;
+    if (d.captcha_required) return;
+    toast(d.msg || '验证码已发送', 'ok');
+  }catch(e){ toast(e.message || '发送验证码失败', 'err'); }
+  finally{ setAppLoginBusy(false); }
+}
+async function appVerify(){
+  if (appLoginBusy) return;
+  const phone = $('appPhone').value.trim(), code = $('appCode').value.trim();
+  setAppLoginBusy(true);
+  try{
+    const r = await fetch(API + '/app-login/verify', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({phone, code, captcha:captchaForm()})});
+    const d = await r.json();
+    if (d.stage === 'success') state.app_logged_in = true;
+    paintAppLogin(d);
+    if (!d.ok) throw new Error(d.error || '短信登录失败');
+    state.app_captcha_proof = null;
+    if (d.captcha_required) return;
+    state.app_logged_in = true;
+    toast('App 登录成功，任务数据已验证', 'ok');
+    await syncFromServer();
+    refresh();
+  }catch(e){ toast(e.message || '短信登录失败', 'err'); }
+  finally{ setAppLoginBusy(false); }
+}
+
 async function saveAll(silent){
   const body = collectForm();
   try{
@@ -325,12 +450,13 @@ async function poll(){
     const d = await r.json();
     addLogs(d.logs || []);
     running = d.running;
-    $('logStat').textContent = d.running ? '运行中…' : '已结束';
+    const failed = !!(d.summary && (d.summary.error || d.summary.fail));
+    $('logStat').textContent = d.running ? '运行中…' : (failed ? '执行失败，请查看日志' : '已结束');
     if (!d.running){
       $('btnRun').disabled = false;
       $('btnRun').textContent = '执行任务';
       clearInterval(polling); polling = null;
-      setTimeout(refresh, 600);
+      if (!d.summary || !d.summary.error) setTimeout(refresh, 600);
     }
   }catch(e){ /* 下一轮再试 */ }
 }
@@ -346,6 +472,7 @@ async function run(){
     const r = await fetch(API + '/run', {method: 'POST'});
     const d = await r.json();
     if (!d.ok){
+      if (d.app_login_required) { setTab('settings'); $('appPhone').focus(); }
       toast(d.error || '启动失败', 'err');
       $('btnRun').disabled = false;
       $('btnRun').textContent = '执行任务';
@@ -475,6 +602,9 @@ $('btnLogin').onclick = () => {
   if (loginStage === 'waiting' || loginStage === 'launching') grabLogin();
   else openLogin();
 };
+$('appSendCode').onclick = appSendCode;
+$('appVerify').onclick = appVerify;
+$('appCaptcha').onclick = openAppCaptcha;
 $('loginGrab').onclick = grabLogin;
 $('loginClose').onclick = closeLogin;
 $('loginModal').onclick = e => { if (e.target.id === 'loginModal') closeLogin(); };
@@ -488,6 +618,7 @@ $('btnRun').onclick = run;
     const d = await r.json();
     state = d;
     fillForm(d.config || {});
+    paintAppLogin(d.app_login || {});
     applyState(d.cached);
   }catch(e){
     toast('读不到配置，程序可能还没起来', 'err');

@@ -104,6 +104,11 @@ def import_local(provider_id: str):
     return _operation(lambda: GATEWAY.import_local(provider_id))
 
 
+@router.post("/api/import-local")
+def import_all_local():
+    return GATEWAY.import_all_local()
+
+
 @router.patch("/api/accounts/{account_id}")
 def update_account(account_id: str, body: dict = Body(...)):
     return GATEWAY.store.update(account_id, label=body.get("label"), enabled=body.get("enabled"))

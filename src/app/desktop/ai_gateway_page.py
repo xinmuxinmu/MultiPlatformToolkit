@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import base64
+import json
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit,
-    QPlainTextEdit, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
+    QFileDialog, QPlainTextEdit, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from .task_components import Card, label
 
@@ -115,6 +116,9 @@ class AIGatewayPage(QWidget):
         self.local = QPushButton("导入本机登录态")
         self.local.clicked.connect(self.import_local)
         row.addWidget(self.local)
+        self.import_all = QPushButton("批量导入可用平台")
+        self.import_all.clicked.connect(self.import_all_local)
+        row.addWidget(self.import_all)
         account.content.addLayout(row)
         self.capabilities = label("读取平台能力…", muted=True)
         account.content.addWidget(self.capabilities)
@@ -144,10 +148,13 @@ class AIGatewayPage(QWidget):
         models = QPushButton("查询可用模型")
         models.clicked.connect(self.load_models)
         controls.addWidget(models)
+        export = QPushButton("导出统一配置")
+        export.clicked.connect(self.export_config)
+        controls.addWidget(export)
         controls.addStretch()
         gateway.content.addLayout(controls)
-        gateway.content.addWidget(label("支持 OpenAI Chat Completions 和 Anthropic Messages 的流式回复、工具调用。"
-            "模型使用“平台/模型”格式；同平台多个启用账号依次轮换。凭据由 Windows 当前用户加密保存。", muted=True))
+        gateway.content.addWidget(label("所有已接入的聊天平台共用一个 API Key；支持 OpenAI Chat Completions 和 Anthropic Messages 的流式回复、工具调用。"
+            "模型使用“平台/模型”格式；同平台多个启用账号依次轮换。仅实现聊天协议的平台会出现在模型列表。", muted=True))
         self.models = QPlainTextEdit()
         self.models.setReadOnly(True)
         self.models.setMaximumHeight(100)
@@ -216,6 +223,22 @@ class AIGatewayPage(QWidget):
         self.api.post("/ai-gateway/api/import/" + self.platform.currentData(), imported, body={},
                       done=self.selection_changed)
 
+    def import_all_local(self):
+        self.local.setEnabled(False)
+        self.import_all.setEnabled(False)
+        self.status.setText("正在批量读取并加密保存可用平台的本机登录态…")
+
+        def imported(data):
+            self.refresh()
+            rows = data.get("results") or []
+            summary = "；".join(f"{row.get('name', row.get('provider', '平台'))}：{row.get('message', '')}"
+                                  for row in rows)
+            self.status.setText(f"批量导入完成：新增或更新 {data.get('imported', 0)} 个账号，失败 {data.get('failed', 0)} 个。" +
+                                ((" " + summary) if summary else ""))
+
+        self.api.post("/ai-gateway/api/import-local", imported, body={},
+                      done=lambda: (self.local.setEnabled(True), self.import_all.setEnabled(True)))
+
     def selected_account(self):
         item = self.accounts.currentItem()
         return item.data(0, Qt.ItemDataRole.UserRole) if item else None
@@ -241,3 +264,29 @@ class AIGatewayPage(QWidget):
         self.models.setPlainText("正在查询平台模型…")
         self.api.get("/ai-gateway/api/models", lambda d: self.models.setPlainText(
             "\n".join(m["id"] for m in d["data"]) or "暂无可用模型，请先添加支持反代的平台账号。"))
+
+    def export_config(self):
+        def save(key, catalog):
+            path, _ = QFileDialog.getSaveFileName(self, "导出统一 API 配置", "ai-gateway-config.json",
+                                                  "JSON 文件 (*.json);;所有文件 (*)")
+            if not path:
+                return
+            data = {"base_url": self.base_url.text(), "api_key": key["api_key"],
+                    "models": [row["id"] for row in catalog.get("data", [])]}
+            try:
+                with open(path, "w", encoding="utf-8") as handle:
+                    json.dump(data, handle, ensure_ascii=False, indent=2)
+                    handle.write("\n")
+            except OSError as exc:
+                self.status.setText(f"导出失败：{exc}")
+            else:
+                message = "已导出统一 API 配置（含 API Key）"
+                if not data["models"]:
+                    message += "；当前模型列表为空"
+                self.status.setText(message)
+
+        def got_key(key):
+            self.api.get("/ai-gateway/api/models", lambda catalog: save(key, catalog),
+                         error=lambda _message: save(key, {"data": []}))
+
+        self.api.get("/ai-gateway/api/key", got_key)
